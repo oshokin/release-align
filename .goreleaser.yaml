@@ -16,7 +16,6 @@ archives:
     files:
       - README.md
       - LICENSE
-      - NOTICE
       - examples/*
 checksum:
   name_template: checksums.txt

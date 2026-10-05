@@ -175,4 +175,4 @@ Tests create local bare repositories. They do not need GitLab. A dropped SSH con
 
 `.goreleaser.yaml` builds the release archives. `cmd.Version`, `cmd.Commit`, and `cmd.BuildTime` are linked into the executable. After a successful `Build and Test` workflow on `master` or `main`, the `Release` workflow computes the next tag with `scripts/semver_next.sh`: `feat` bumps minor, `major` bumps major, and anything else bumps patch. GoReleaser publishes the result. `task version-check` prints the next tag locally. `task install-githooks` installs the `.githooks/commit-msg` hook.
 
-The GPL-3.0 license is in `LICENSE`. Third-party pieces are listed in `NOTICE`.
+The MIT license is in `LICENSE`. Copyright (c) 2026 Oleg Shokin.
