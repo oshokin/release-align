@@ -1,7 +1,9 @@
 package app
 
 import (
-	"github.com/oshokin/release-align/internal/gitter"
+	"context"
+	"time"
+
 	"github.com/oshokin/release-align/internal/retry"
 )
 
@@ -56,12 +58,22 @@ type (
 		message string
 	}
 
+	// gitClient is the Git surface the runner calls.
+	gitClient interface {
+		// Local runs a Git command that does not talk to a remote.
+		Local(ctx context.Context, dir string, args ...string) (string, error)
+		// Probe checks that origin answers within timeout.
+		Probe(ctx context.Context, dir string, timeout time.Duration) error
+		// Fetch updates origin branches and tags.
+		Fetch(ctx context.Context, dir string, timeout time.Duration) error
+	}
+
 	// runner shares read-only configuration and clients across repository workers.
 	runner struct {
 		// cfg is the read-only run configuration.
 		cfg *Config
 		// git runs Git commands.
-		git *gitter.Client
+		git gitClient
 		// manifest is the service version table.
 		manifest Manifest
 		// probeRetry retries origin reachability checks.

@@ -36,6 +36,68 @@ go build -o release-align .
 
 By default the walk takes repositories at depth 2 only: `<base-dir>/<group>/<repo>`. `--depth 3` takes level 3 only. Hidden directories are skipped. Directory symlinks are not followed. Both a `.git` directory and a worktree `.git` file qualify.
 
+## Commands
+
+The program takes no positional arguments. A flag overrides the environment variable for the same setting. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. The walk does not: a bad flag, a bad variable, or a bad version table exits 2 before any repository is touched.
+
+### release-align
+
+Walks the base directory and updates each clone.
+
+```bash
+release-align --base-dir ~/src --branch Release-2.3.2 --jobs 4 --log-level debug
+release-align -n -j 8 -l warn
+release-align --local keep
+release-align --local reset --versions-file "$HOME/versions.json"
+```
+
+| Flag | Short | Default | Environment | Meaning |
+| --- | --- | --- | --- | --- |
+| `--help` | `-h` | | | Print help and exit |
+| `--version` | `-v` | | | Print the version line and exit |
+| `--base-dir` | | `$HOME/go/src/gitlab.stageoffice.ru` | `BASE_DIR` | Root that contains the clones. `~` and `~/...` expand to the home directory. The path is stored absolute. An empty value is an error |
+| `--branch` | | `master` | `RELEASE_BRANCH` | Preferred origin branch. Empty, or a name that starts with `-`, is an error |
+| `--depth` | | `2` | `MAX_DEPTH` | Exact directory depth below the base, from 1 to 32. This is not "up to" that depth |
+| `--versions-file` | | built-in table | `VERSIONS_FILE` | JSON object that replaces built-in entries with the same key. Omitted means the 43 compiled entries |
+| `--dry-run` | `-n` | `false` | `DRY_RUN` | Plan from refs already on disk. No probe, fetch, switch, stash, clean, or merge |
+| `--local` | | `skip` | `LOCAL` | `skip`, `keep`, or `reset`, any case. `skip` leaves local commits and edits. `keep` carries uncommitted files onto the update and still skips local commits. `reset` discards local commits and edits on the selected branch |
+| `--log-level` | `-l` | `info` | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`, any case |
+| `--jobs` | `-j` | `4` | `JOBS` | Repositories processed at once, from 1 to 64 |
+| `--attempts` | | `3` | `ATTEMPTS` | Origin checks in total, including the first, from 1 to 10. `1` does not start the retry engine |
+| `--probe-timeout` | | `5s` | `LSREMOTE_TIMEOUT` | Timeout of one `git ls-remote` |
+| `--retry-delay` | | `1s` | `RETRY_DELAY` | Pause between failed origin checks. `0` is allowed |
+| `--fetch-timeout` | | `1m` | `FETCH_TIMEOUT` | Timeout of one fetch |
+| `--local-timeout` | | `40s` | `CHECKOUT_TIMEOUT` | Timeout of one local Git command |
+
+On the command line a duration needs a Go unit: `5s`, `750ms`, `1m`. In the environment a bare number is seconds, so `60` and `60s` are the same. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
+
+### release-align version
+
+Prints one line and exits 0:
+
+```text
+release-align <version> (commit <sha>, built <time>)
+```
+
+A build without those linker values prints `dev`, `unknown`, and `unknown`. `release-align version` and `release-align --version` print the same line. `-v` is this switch. It does not change the log level.
+
+### release-align help
+
+`release-align help`, `--help`, and `-h` print help for the walk. `release-align help version` and `release-align help completion` print help for those commands. `release-align completion --help` does the same for completion.
+
+### release-align completion
+
+Writes a shell completion script to stdout.
+
+```bash
+release-align completion bash
+release-align completion zsh
+release-align completion fish
+release-align completion powershell
+```
+
+`--no-descriptions` leaves flag descriptions out of the script. Bash needs the `bash-completion` package. The current bash session can load the script with `source <(release-align completion bash)`.
+
 ## What happens to a repository
 
 1. A local check: the work tree is clean, no merge, rebase, cherry-pick, revert, or bisect is in progress, HEAD is on a branch, that branch has an upstream on origin, and the branch has no commits that origin does not already have.
@@ -55,7 +117,7 @@ A branch that contains the listed commit may have moved past it. The program che
 
 If the target local branch already exists, its history must be an ancestor of the chosen origin branch, and its upstream must be that same ref. Otherwise the repository is skipped before `switch`. A missing local branch is created with tracking set to origin.
 
-The update itself is a local `git merge --ff-only` from the chosen origin ref. There is no second network request, no merge commit, no rebase, no stash, no reset, and no push. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is also left in place.
+The update itself is a local `git merge --ff-only` from the chosen origin ref. There is no second network request, no merge commit, no rebase, and no push. `--local keep` stashes edits first and applies them after the update. `--local reset` discards local commits with `git reset --hard` and removes untracked files with `git clean -fd`. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is also left in place.
 
 ## Network and parallelism
 
@@ -147,10 +209,9 @@ The code lives in `cmd` and in four packages under `internal`: `app` (the walk, 
 
 `--attempts 3` allows two retries after the first check. `--attempts 1` makes one call and does not start the retry engine. Inside the engine, zero retries means no limit, so a single attempt deliberately skips the engine. Canceling the parent context stops retries at once. A timeout of one Git command is retried while that parent context is still alive.
 
-Help, `version`, `--version`, and `completion` still work when the environment is invalid, and they do not open repositories. Short flags are `-n`, `-j`, and `-v`.
-
 ```bash
-./release-align -n -j 8
+./release-align -n -j 8 -l debug
+./release-align -v
 ./release-align completion bash > release-align-completion.bash
 ```
 
