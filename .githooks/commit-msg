@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Git commit-msg hook for optional semantic commit messages.
+# Missing semantic prefix is allowed; CI/CD treats unprefixed commits as patch/fix.
+
+# Exit immediately on error, treat unset variables as errors, and fail on pipe errors.
+set -euo pipefail
+
+# Get the commit message file path passed by Git as the first argument.
+msg_file="$1"
+
+# Read the first line (subject) of the commit message and strip carriage returns.
+# This handles Windows line endings (CRLF) to ensure cross-platform compatibility.
+subject=$(sed -n '1p' "$msg_file" | tr -d '\r')
+
+# Define the required commit message pattern using extended regex.
+# Accept either plain type (fix:) or optional scope form (feat(api):).
+pattern='^(fix|feat|major)(\([^)]+\))?: '
+
+# Keep semantic subjects unchanged.
+if printf '%s' "$subject" | grep -Eq "$pattern"; then
+  exit 0
+fi
+
+if [[ -z "${subject// }" ]]; then
+  echo "commit-msg: empty subject; allowing commit (git may still reject)." >&2
+  exit 0
+fi
+
+echo "commit-msg: no semantic prefix detected; allowing commit. CI/CD will treat it as patch/fix." >&2
+echo "Got: $subject" >&2
+exit 0

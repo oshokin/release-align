@@ -1,0 +1,126 @@
+# GitHub Actions workflow for continuous integration.
+# This workflow builds and tests release-align on every push and PR.
+# Release automation is handled separately in release.yaml.
+
+name: Build and Test
+
+# Define when this workflow should be triggered.
+on:
+  # Run on all pull requests.
+  pull_request:
+  # Run on pushes to the default release branch only.
+  push:
+    branches: [master, main]
+  # Allow this workflow to be called from other workflows as a reusable workflow.
+  workflow_call:
+  # Enable manually triggering this workflow via the API or web UI.
+  workflow_dispatch:
+
+# Environment variables (constants for configuration).
+env:
+  # Tool versions. Go itself is taken from go.mod.
+  GOLANGCI_LINT_VERSION: "v2.14.0"
+
+  # Test configuration.
+  TEST_TIMEOUT: "5m"
+
+permissions:
+  contents: read
+
+# Set default configuration for all run commands in this workflow.
+defaults:
+  run:
+    # Use bash as the default shell for all run steps.
+    shell: bash
+
+# Define all jobs that will run as part of this workflow.
+jobs:
+  # Job to check code quality and style using golangci-lint.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository code with full git history.
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          # Fetch all commits and branches for complete history.
+          fetch-depth: 0
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ env.GOLANGCI_LINT_VERSION }}
+      - name: golangci-lint
+        run: |
+          golangci-lint config verify
+          golangci-lint run
+      - name: Check formatting
+        run: |
+          golangci-lint fmt
+          git diff --exit-code
+
+  # Job to test the application on multiple platforms.
+  # Race detection needs CGO and is skipped on Windows.
+  test:
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      # Continue running other matrix jobs even if one fails.
+      fail-fast: false
+      matrix:
+        platform:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Toolchain info
+        run: |
+          go version
+          go env GOOS
+          go env GOARCH
+          go env GOTOOLCHAIN
+          go env GOVERSION
+      - name: Run tests
+        run: go test -shuffle=on -timeout ${{ env.TEST_TIMEOUT }} ./...
+      - name: Run tests with race detector
+        if: runner.os != 'Windows'
+        run: go test -race -shuffle=on -timeout ${{ env.TEST_TIMEOUT }} ./...
+
+  # Job to verify that the application builds correctly.
+  test-build:
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      # Continue running other matrix jobs even if one fails.
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      # Checkout the repository code.
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Toolchain info
+        run: |
+          go version
+          go env GOOS
+          go env GOARCH
+          go env GOTOOLCHAIN
+          go env GOVERSION
+      - name: Check build
+        run: |
+          pwd && ls -l
+          ext="$(go env GOEXE)"
+          go build -trimpath -v -o "release-align${ext}" .
+          "./release-align${ext}" --help

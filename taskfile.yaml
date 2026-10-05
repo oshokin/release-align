@@ -1,0 +1,277 @@
+version: "3"
+
+silent: true
+
+vars:
+  # -------------------------------
+  # Platform Configuration
+  # -------------------------------
+
+  # Path separator per OS.
+  PS: '{{fromSlash "/"}}'
+
+  # Cross-platform mkdir/rm helpers.
+  RMRF: '{{if eq OS "windows"}}powershell.exe -Command "Remove-Item -Force -Recurse -ErrorAction SilentlyContinue -Path{{else}}rm -rf{{end}}'
+  RMRF_END: '{{if eq OS "windows"}}; exit 0"{{end}}'
+  MKDIR: '{{if eq OS "windows"}}powershell.exe -Command "New-Item -ItemType Directory -Force -Path{{else}}mkdir -p{{end}}'
+  MKDIR_END: '{{if eq OS "windows"}} | Out-Null"{{end}}'
+
+  # -------------------------------
+  # Project Directories
+  # -------------------------------
+
+  # Local bin & temp dirs (kept in repo root).
+  LOCAL_BIN: "{{.TASKFILE_DIR}}{{.PS}}bin"
+  APP: "release-align"
+  APP_BINARY: "{{.LOCAL_BIN}}{{.PS}}{{.APP}}{{exeExt}}"
+
+  # -------------------------------
+  # Tool Versions
+  # -------------------------------
+
+  # Linting tool version.
+  GOLANGCI_TAG: "v2.14.0"
+  # GoMock binary version (uber-go/mock fork).
+  MOCKGEN_TAG: "v0.6.0"
+
+  # -------------------------------
+  # Tool Binaries
+  # -------------------------------
+
+  GOLANGCI_BIN: "{{.LOCAL_BIN}}{{.PS}}golangci-lint{{exeExt}}"
+  MOCKGEN_BIN: "{{.LOCAL_BIN}}{{.PS}}mockgen{{exeExt}}"
+
+  # -------------------------------
+  # Version Detection
+  # -------------------------------
+
+  # Commands to check current versions of installed tools.
+  GOLANGCI_VERSION_OUTPUT:
+    sh: '{{if eq OS "windows"}}powershell -Command "try { if (Test-Path ''{{.GOLANGCI_BIN}}'') { & ''{{.GOLANGCI_BIN}}'' version } } catch { }; exit 0"{{else}}"{{.GOLANGCI_BIN}}" version 2> /dev/null || true{{end}}'
+  MOCKGEN_VERSION_OUTPUT:
+    sh: '{{if eq OS "windows"}}powershell -Command "try { if (Test-Path ''{{.MOCKGEN_BIN}}'') { & ''{{.MOCKGEN_BIN}}'' -version } } catch { }; exit 0"{{else}}"{{.MOCKGEN_BIN}}" -version 2> /dev/null || true{{end}}'
+
+  # Regex patterns to extract version numbers from tool outputs.
+  GOLANGCI_CURRENT_TAG: '{{regexFind "v([0-9]+.){2}([0-9a-z])+" (regexFind "version v([0-9]+.){2}([0-9a-z])+ " .GOLANGCI_VERSION_OUTPUT)}}'
+  MOCKGEN_CURRENT_TAG: '{{regexFind "v([0-9]+.){2}([0-9a-z])+" .MOCKGEN_VERSION_OUTPUT}}'
+
+  # -------------------------------
+  # Configuration Files
+  # -------------------------------
+
+  GOLANGCI_CONFIG: ".golangci.yaml"
+
+tasks:
+  # -------------------------------
+  # Default & Help
+  # -------------------------------
+
+  default:
+    cmds:
+      - task -l
+
+  # -------------------------------
+  # Tool Installation
+  # -------------------------------
+
+  _ensure-bin:
+    internal: true
+    cmds:
+      - '{{.MKDIR}} ''{{.LOCAL_BIN}}''{{.MKDIR_END}}'
+
+  install-lint:
+    desc: "Install golangci-lint into ./bin"
+    deps: [_ensure-bin]
+    cmds:
+      - |
+        # Only install if current version doesn't match desired version.
+        {{if (not (eq .GOLANGCI_CURRENT_TAG .GOLANGCI_TAG))}}
+          echo "Installing golangci-lint, version: {{.GOLANGCI_TAG}}..."
+          {{if eq OS "windows"}}
+            powershell.exe -Command "\$env:GOBIN = '{{.LOCAL_BIN}}'; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_TAG}}"
+          {{else}}
+            GOBIN="{{.LOCAL_BIN}}" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_TAG}}
+          {{end}}
+        {{end}}
+    env:
+      GOBIN: "{{.LOCAL_BIN}}"
+
+  install-mockgen:
+    desc: "Install mockgen into ./bin"
+    deps: [_ensure-bin]
+    cmds:
+      - |
+        # Only install if current version doesn't match desired version.
+        {{if (not (eq .MOCKGEN_CURRENT_TAG .MOCKGEN_TAG))}}
+          echo "Installing mockgen, version: {{.MOCKGEN_TAG}}..."
+          {{if eq OS "windows"}}
+            powershell.exe -Command "\$env:GOBIN = '{{.LOCAL_BIN}}'; go install go.uber.org/mock/mockgen@{{.MOCKGEN_TAG}}"
+          {{else}}
+            GOBIN="{{.LOCAL_BIN}}" go install go.uber.org/mock/mockgen@{{.MOCKGEN_TAG}}
+          {{end}}
+        {{end}}
+    env:
+      GOBIN: "{{.LOCAL_BIN}}"
+
+  install-tools:
+    desc: "Install golangci-lint and mockgen"
+    deps: [install-lint, install-mockgen]
+
+  # -------------------------------
+  # Git Hooks
+  # -------------------------------
+
+  install-githooks:
+    desc: "Configure Git hooks for this repository"
+    cmds:
+      - |
+        echo "Setting up Git hooks..."
+        git config --local core.hooksPath .githooks
+        {{if ne OS "windows"}}
+          chmod +x .githooks/commit-msg
+        {{end}}
+        echo "Git hooks configured successfully!"
+        echo "Semantic prefixes are optional; CI/CD treats unprefixed commits as patch/fix."
+
+  remove-githooks:
+    desc: "Disable Git hooks for this repository"
+    cmds:
+      - |
+        echo "Disabling Git hooks..."
+        git config --local --unset core.hooksPath || echo "Hooks path was not set"
+        echo "Git hooks disabled. You can now use any commit message format."
+
+  # -------------------------------
+  # Code Generation
+  # -------------------------------
+
+  generate-mocks:
+    desc: "Generate all mocks using go generate"
+    deps: [install-mockgen] # Ensure mockgen is installed before running.
+    cmds:
+      - echo "Generating mocks for all interfaces..."
+      - go generate ./...
+      - echo "Mock generation completed successfully!"
+    env:
+      # Set MOCKGEN environment variable to the local binary path.
+      MOCKGEN: "{{.MOCKGEN_BIN}}"
+
+  # -------------------------------
+  # Code Quality
+  # -------------------------------
+
+  lint-fix:
+    desc: "Run golangci-lint with --fix"
+    deps: [install-lint]
+    cmds:
+      - '"{{.GOLANGCI_BIN}}" config verify'
+      - '"{{.GOLANGCI_BIN}}" fmt'
+      - '"{{.GOLANGCI_BIN}}" run --fix'
+
+  lint:
+    desc: "Run golangci-lint"
+    deps: [install-lint]
+    cmds:
+      - '"{{.GOLANGCI_BIN}}" config verify'
+      - '"{{.GOLANGCI_BIN}}" run'
+
+  fmt:
+    desc: "Apply gofumpt, gci and golines"
+    deps: [install-lint]
+    cmds:
+      - '"{{.GOLANGCI_BIN}}" fmt'
+
+  # -------------------------------
+  # Testing
+  # -------------------------------
+
+  test:
+    desc: "Run unit tests"
+    cmds:
+      - go test -v ./...
+
+  test-race:
+    desc: "Run unit tests with race detector"
+    cmds:
+      - |
+        {{if eq OS "windows"}}
+          echo "Note: Race detector requires CGO. If this fails, install gcc (MinGW-w64) or use WSL."
+          powershell.exe -Command "\$env:CGO_ENABLED = '1'; go test -race -shuffle=on -v ./..."
+        {{else}}
+          go test -race -shuffle=on -v ./...
+        {{end}}
+    env:
+      CGO_ENABLED: "1"
+
+  check:
+    desc: "Run lint and race tests"
+    cmds:
+      - task: lint
+      - task: test-race
+
+  # -------------------------------
+  # Build & Release
+  # -------------------------------
+
+  build:
+    desc: "Build the {{.APP}} binary with version injection"
+    vars:
+      DYNAMIC_VERSION:
+        sh: 'git fetch --tags 2>/dev/null && git describe --tags --match  "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo ""'
+      DYNAMIC_COMMIT:
+        sh: 'git rev-parse --short HEAD 2>/dev/null || echo "dev"'
+      DYNAMIC_BUILD_TIME:
+        sh: '{{if eq OS "windows"}}powershell -Command "Get-Date -UFormat \"%Y-%m-%dT%H:%M:%SZ\""{{else}}date -u +"%Y-%m-%dT%H:%M:%SZ"{{end}}'
+    cmds:
+      # Create the local bin directory if it doesn't exist.
+      - '{{.MKDIR}} ''{{.LOCAL_BIN}}''{{.MKDIR_END}}'
+      - |
+        echo "Building {{.APP}}..."
+        {{if eq OS "windows"}}
+          go build -trimpath -ldflags "-X github.com/oshokin/release-align/cmd.Version={{.DYNAMIC_VERSION}} -X github.com/oshokin/release-align/cmd.Commit={{.DYNAMIC_COMMIT}} -X github.com/oshokin/release-align/cmd.BuildTime={{.DYNAMIC_BUILD_TIME}}" -o "{{.APP_BINARY}}" .
+        {{else}}
+          go build -trimpath -ldflags "-X github.com/oshokin/release-align/cmd.Version={{.DYNAMIC_VERSION}} -X github.com/oshokin/release-align/cmd.Commit={{.DYNAMIC_COMMIT}} -X github.com/oshokin/release-align/cmd.BuildTime={{.DYNAMIC_BUILD_TIME}}" -o "{{.APP_BINARY}}" .
+        {{end}}
+        echo "Build completed successfully!"
+
+  run:
+    desc: "Run the {{.APP}} binary"
+    cmds:
+      - |
+        if [ ! -f "{{.APP_BINARY}}" ]; then
+          echo "Binary not found, building..."
+          task build # Build the binary if it doesn't exist
+        fi
+        "{{.APP_BINARY}}" # Run the application binary
+
+  # -------------------------------
+  # Cleanup
+  # -------------------------------
+
+  clean:
+    desc: "Remove binaries and temporary files"
+    cmds:
+      - '{{.RMRF}} ''{{.LOCAL_BIN}}''{{.RMRF_END}}'
+
+  # -------------------------------
+  # Version Management
+  # -------------------------------
+
+  fetch-tags:
+    desc: "Fetch tags from origin"
+    cmds:
+      - |
+        echo "Fetching tags from origin..."
+        git fetch --tags
+
+  version-check:
+    desc: "Check what the next version would be based on commits"
+    deps: [fetch-tags]
+    cmds:
+      - |
+        echo "Analyzing commits for version bump..."
+        {{if eq OS "windows"}}
+          powershell -ExecutionPolicy Bypass -File scripts/semver_next.ps1
+        {{else}}
+          bash scripts/semver_next.sh
+        {{end}}

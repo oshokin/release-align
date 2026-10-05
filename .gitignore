@@ -1,0 +1,17 @@
+# OS metadata.
+.DS_Store
+
+# IDE and local notes.
+/.idea
+/.vscode
+
+# Build and dependencies.
+/bin/
+/dist/
+/vendor
+/release-align
+/release-align.exe
+/coverage.out
+
+# Temporary lock left by a local run.
+/.release-align.lock/
