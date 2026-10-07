@@ -20,17 +20,18 @@ type WorkspaceInitOptions struct {
 
 // workspaceScanner accumulates existing repository roots without entering their contents.
 type workspaceScanner struct {
-	git  LocalGit
-	base string
-	spec *WorkspaceSpec
+	git      LocalGit
+	base     string
+	projects []*ProjectSpec
 }
 
 var (
-	errWorkspaceInitOptions  = errors.New("workspace init requires base-dir and branch")
-	errWorkspaceInitBaseRepo = errors.New("base-dir must contain repositories; it must not itself be a repository")
-	errWorkspaceInitMarker   = errors.New(".git must be a directory or regular gitfile, not a symbolic link")
-	errWorkspaceInitEmpty    = errors.New("no Git working trees found under base-dir")
-	errWorkspaceInitOrigin   = errors.New("discovered repository has no usable origin URL")
+	errWorkspaceInitOptions   = errors.New("workspace init requires base-dir and branch")
+	errWorkspaceInitBaseRepo  = errors.New("base-dir must contain repositories; it must not itself be a repository")
+	errWorkspaceInitMarker    = errors.New(".git must be a directory or regular gitfile, not a symbolic link")
+	errWorkspaceInitEmpty     = errors.New("no Git working trees found under base-dir")
+	errWorkspaceInitOrigin    = errors.New("discovered repository has no usable origin URL")
+	errWorkspaceListedInvalid = errors.New("listed workspace path is not a usable repository")
 )
 
 // ScanWorkspace inventories local clones and derives groups from parent directory prefixes.
@@ -39,6 +40,7 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 	if options == nil || options.BaseDir == "" || options.Branch == "" {
 		return nil, errWorkspaceInitOptions
 	}
+
 	revision := &RevisionSpec{
 		Branch: options.Branch,
 	}
@@ -46,41 +48,85 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		return nil, err
 	}
 
-	base, err := filepath.Abs(options.BaseDir)
-	if err != nil {
+	if err := g.ProbeNoLazyFetch(ctx); err != nil {
 		return nil, err
 	}
 
-	base, err = filepath.EvalSymlinks(base)
+	base, err := canonicalWorkspaceBase(options.BaseDir)
 	if err != nil {
 		return nil, err
-	}
-
-	info, err := os.Stat(base)
-	if err != nil {
-		return nil, err
-	}
-
-	if !info.IsDir() {
-		return nil, errBaseDirNotDirectory
 	}
 
 	if _, err = g.Local(ctx, base, "check-ref-format", "refs/heads/"+options.Branch); err != nil {
 		return nil, err
 	}
+
+	projects, err := discoverWorkspaceProjects(ctx, g, base)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(projects) == 0 {
+		return nil, errWorkspaceInitEmpty
+	}
+
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       options.Release,
 		DefaultBranch: options.Branch,
-		Projects:      []*ProjectSpec{},
+		Projects:      projects,
 	}
-	scanner := &workspaceScanner{
-		git:  g,
-		base: base,
-		spec: spec,
+	if err = spec.Validate(); err != nil {
+		return nil, err
 	}
 
-	err = filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
+	return spec, nil
+}
+
+// DiscoverWorkspaceProjects lists local working trees under baseDir.
+// An empty directory is a successful empty result. The caller supplies any default branch.
+func DiscoverWorkspaceProjects(ctx context.Context, g LocalGit, baseDir string) ([]*ProjectSpec, error) {
+	base, err := canonicalWorkspaceBase(baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return discoverWorkspaceProjects(ctx, g, base)
+}
+
+// canonicalWorkspaceBase resolves a directory that contains clones and is not followed past its real path.
+func canonicalWorkspaceBase(baseDir string) (string, error) {
+	base, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", err
+	}
+
+	base, err = filepath.EvalSymlinks(base)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(base)
+	if err != nil {
+		return "", err
+	}
+
+	if !info.IsDir() {
+		return "", errBaseDirNotDirectory
+	}
+
+	return base, nil
+}
+
+// discoverWorkspaceProjects walks one canonical base directory.
+func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) ([]*ProjectSpec, error) {
+	scanner := &workspaceScanner{
+		git:      g,
+		base:     base,
+		projects: []*ProjectSpec{},
+	}
+
+	err := filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -95,17 +141,11 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		return nil, err
 	}
 
-	if len(spec.Projects) == 0 {
-		return nil, errWorkspaceInitEmpty
-	}
+	slices.SortFunc(scanner.projects, func(left, right *ProjectSpec) int {
+		return strings.Compare(left.Path, right.Path)
+	})
 
-	slices.SortFunc(spec.Projects, func(a, b *ProjectSpec) int { return strings.Compare(a.Path, b.Path) })
-
-	if err = spec.Validate(); err != nil {
-		return nil, err
-	}
-
-	return spec, nil
+	return scanner.projects, nil
 }
 
 // visit prunes excluded directories and validates every discovered Git working tree.
@@ -117,6 +157,7 @@ func (s *workspaceScanner) visit(ctx context.Context, dir string, entry fs.DirEn
 	if dir != s.base && strings.HasPrefix(entry.Name(), ".") {
 		return filepath.SkipDir
 	}
+
 	marker, err := os.Lstat(filepath.Join(dir, ".git"))
 	if errors.Is(err, os.ErrNotExist) {
 		return s.skipBare(ctx, dir)
@@ -143,7 +184,55 @@ func (s *workspaceScanner) visit(ctx context.Context, dir string, entry fs.DirEn
 
 // addProject checks the real repository root and origin before recording an exact relative path.
 func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
-	top, err := s.git.Local(ctx, dir, "rev-parse", "--show-toplevel")
+	if err := confirmWorkspaceRoot(ctx, s.git, dir); err != nil {
+		return err
+	}
+
+	relative, err := filepath.Rel(s.base, dir)
+	if err != nil {
+		return err
+	}
+
+	projectPath := filepath.ToSlash(relative)
+	project := &ProjectSpec{
+		Path:   projectPath,
+		Groups: directoryGroups(projectPath),
+	}
+	s.projects = append(s.projects, project)
+
+	return nil
+}
+
+// directoryGroups returns full ancestor paths, avoiding ambiguous subgroup basenames.
+func directoryGroups(projectPath string) []string {
+	var groups []string
+
+	for index, char := range projectPath {
+		if char == '/' {
+			groups = append(groups, projectPath[:index])
+		}
+	}
+
+	return groups
+}
+
+// confirmWorkspaceRoot checks the git marker, the real root, and a nonempty origin URL.
+// A missing .git marker is not os.ErrNotExist, so a present directory is not reported as deleted.
+func confirmWorkspaceRoot(ctx context.Context, g LocalGit, dir string) error {
+	marker, err := os.Lstat(filepath.Join(dir, ".git"))
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s: %w", dir, errWorkspaceListedInvalid)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if !marker.IsDir() && !marker.Mode().IsRegular() {
+		return fmt.Errorf("%s: %w", dir, errWorkspaceInitMarker)
+	}
+
+	top, err := g.Local(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return err
 	}
@@ -162,7 +251,7 @@ func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
 		return fmt.Errorf("%s: %w", dir, errWorkspaceRoot)
 	}
 
-	remote, err := s.git.Local(ctx, dir, "remote", "get-url", "origin")
+	remote, err := g.Local(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {
 		return fmt.Errorf("%s: %w: %w", dir, errWorkspaceInitOrigin, err)
 	}
@@ -171,31 +260,26 @@ func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
 		return fmt.Errorf("%s: %w", dir, errWorkspaceInitOrigin)
 	}
 
-	relative, err := filepath.Rel(s.base, dir)
-	if err != nil {
-		return err
-	}
-	projectPath := filepath.ToSlash(relative)
-	project := &ProjectSpec{
-		Path:   projectPath,
-		Groups: s.directoryGroups(projectPath),
-	}
-	s.spec.Projects = append(s.spec.Projects, project)
-
 	return nil
 }
 
-// directoryGroups returns full ancestor paths, avoiding ambiguous subgroup basenames.
-func (*workspaceScanner) directoryGroups(projectPath string) []string {
-	var groups []string
-
-	for index, char := range projectPath {
-		if char == '/' {
-			groups = append(groups, projectPath[:index])
-		}
+// listedProjectMissing reports a workspace path whose directory is absent.
+// A present but unusable path is an error, including a root discovery would not visit.
+func listedProjectMissing(ctx context.Context, g LocalGit, base, relative string) (bool, error) {
+	dir, err := ResolveProjectDirectory(base, relative)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
 	}
 
-	return groups
+	if err != nil {
+		return false, err
+	}
+
+	if err = confirmWorkspaceRoot(ctx, g, dir); err != nil {
+		return false, err
+	}
+
+	return false, nil
 }
 
 // skipBare avoids walking an object database when a bare repository is found.
@@ -212,6 +296,7 @@ func (s *workspaceScanner) skipBare(ctx context.Context, dir string) error {
 	if !head.Mode().IsRegular() {
 		return nil
 	}
+
 	objects, err := os.Lstat(filepath.Join(dir, "objects"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

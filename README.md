@@ -10,14 +10,14 @@ A loop of `git pull` waits out its own timeout in each repository and merges how
 
 `go get` and `go.work` change module requirements. The service directory stays on the commit it was cloned at. The GitLab web UI updates the project on the server and never sees uncommitted files on the machine.
 
-Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Running needs Git 2.31 or newer, and either the installed OpenSSH or an SSH command of your own in `GIT_SSH_COMMAND` or `GIT_SSH`. The program builds and runs on Linux, macOS, and Windows.
+Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Offline commands set `GIT_NO_LAZY_FETCH=1`. They also try `--no-lazy-fetch` once; a Git that does not recognize the option continues without it. That was checked on Git 2.43.0 and Git 2.51.1. A normal sync does not use either mechanism. Running also needs the installed OpenSSH, or an SSH command of your own in `GIT_SSH_COMMAND` or `GIT_SSH`. The program builds and runs on Linux, macOS, and Windows.
 
 ## Quick start
 
 ```bash
 go build -o release-align .
 
-release-align workspace init \
+./release-align workspace init \
   --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
   --branch Release-26.3.0 \
   --file ./mailion.workspace.json
@@ -125,6 +125,8 @@ A group is the relative path of a parent directory. Every ancestor prefix is rec
 
 The scan walks the base directory, skips hidden directories, and does not follow a directory symlink. A `.git` directory or a regular gitfile marks a working tree. A `.git` symlink is rejected. The candidate must be the real repository root. Nested clones inside a found root, including vendor and submodules, are not added. A bare repository is skipped and its object database is not walked. If the base directory itself is a repository, the command stops and asks for the parent directory. A broken `.git`, a read error, or a repository without `origin` stops the command. The file is not written. An empty tree is an error too. A service that was never cloned cannot appear. The file is a starting inventory, not proof that the server has nothing else. Read it, add any missing paths by hand, and keep it.
 
+`ready` describes the selected entries in the file, not every clone under the base directory. A new local clone stays invisible to `status` and sync until it is listed. A listed path that is gone is reported when that path is part of the selection.
+
 The document is validated, including the 1 MiB limit, before the destination is opened. The file is created with mode `0600` and only if that path does not exist. A symlink at the destination is also refused. There is no `--force`. The parent directory is not created for you. If the write or close fails, the new partial file is removed. An older file is not replaced. A crash can leave a partial new file; reading it fails as bad JSON. To regenerate, pick another filename and diff:
 
 ```bash
@@ -132,6 +134,40 @@ release-align workspace init --base-dir "$HOME/src/gitlab.stageoffice.ru" \
   --branch Release-26.3.0 --file ./workspace.candidate.json
 diff -u ./mailion.workspace.json ./workspace.candidate.json
 ```
+
+### release-align workspace refresh
+
+`refresh` compares that file with the clones currently under `--base-dir`. `--base-dir` and `--file` are required. They are not the sync flags and they do not read the sync environment. With no `--add` and no `--add-all`, the command only prints the difference and leaves the file, its modification time, and every Git worktree unchanged.
+
+```bash
+./release-align workspace refresh \
+  --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
+  --file ./mailion.workspace.json
+
+./release-align workspace refresh \
+  --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
+  --file ./mailion.workspace.json \
+  --add mailion/search/new-indexer
+
+./release-align workspace refresh \
+  --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
+  --file ./mailion.workspace.json \
+  --add-all
+```
+
+`--add` is repeatable and is one exact relative path, not a glob. A comma stays inside that path. `--add` and `--add-all` cannot be combined. Adding a path that is already listed does nothing. Adding a path that is not a new local clone fails the whole request before the file is replaced. `--add-all` appends every new local clone and leaves listed paths that are no longer on disk in the file. A second `--add-all` with nothing new does not open the file for writing.
+
+New entries go after the existing ones, in lexical order, with directory groups from the same rules as `init` and with no revision of their own. They inherit `default_branch`. A file whose projects are all pinned, and which has no `default_branch`, can be previewed, but a new unpinned project is rejected until you set `default_branch` or add the project by hand with a revision. Refresh does not invent `master` or `main`. Existing `release`, `default_branch`, groups, pins, and project order stay. The file may be reformatted when it actually changes.
+
+An unlisted clone is not an error. Another project under the same directory may have been left out on purpose. A missing listed path is a warning in the preview; other valid additions are still allowed, and the missing entry is not deleted. A listed path that exists but is not a usable repository, including a broken `.git`, a missing origin, a symlink, or a permissions error, stops the command and does not write. A hidden or nested root that you put in the file by hand is checked directly, so the directory walk skipping it does not make it look deleted.
+
+Refresh does not fetch, switch, or ask the server whether `default_branch` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready. `status` does that, and it still looks only at the file.
+
+A repository that was created on the server but never cloned is not in this scan. Finding those projects would need the GitLab API, which this command does not call.
+
+While it writes, refresh creates `<file>.lock` next to the workspace with `O_EXCL` and does not wait. The lock coordinates release-align processes. An editor does not take it. If a crash leaves the lock, confirm that no refresh is running, then delete that file. The program does not delete a lock it did not create and does not treat an old lock as free. A preview does not create the lock.
+
+The replacement is a temporary file in the same directory, renamed onto the workspace name. On Unix that rename replaces the directory entry. Go does not promise the same atomicity on other operating systems, and this is not a crash-proof replace on every OS. If the rename fails, the original file stays and there is no second, destructive replace. Before the rename, refresh checks that the path is still that regular file and that its bytes are still the bytes it read. The check can notice an outside edit. It is not an atomic compare-and-swap against an editor, and two hard links to the file are not a supported way to edit it.
 
 A project revision is one of `branch`, `tag`, or `commit`. If it is omitted, the file's `default_branch` is used. `--branch` replaces that default only when the flag is present on the command line. A commit must be a full lowercase SHA-1 or SHA-256. The branch resolves to `origin/<branch>`, the tag to its peeled commit, and the commit to that object. Another branch, another tag, and the current upstream are not substitutes.
 
@@ -143,7 +179,7 @@ The fast-forward then uses that resolved commit. Afterward the worktree is read 
 
 The update itself is a local `git merge --ff-only` from the resolved commit. There is no second network request, no merge commit, no rebase, and no push. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is left in place.
 
-Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not contact the network (`freshness` `cached`). Those commands set `GIT_NO_LAZY_FETCH=1` on the Git processes they start, so a partial clone does not download a missing object to answer them. A normal sync does not set that variable. The parent process environment is left unchanged. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
+Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not contact the network (`freshness` `cached`). `status`, `--dry-run`, `workspace init`, and `workspace refresh` run `git --no-lazy-fetch --version` once per invocation. When Git rejects that option, they leave it unused and continue. A missing Git executable or a timeout keeps that original error. Those commands still set `GIT_NO_LAZY_FETCH=1` on the Git processes they start, so a partial clone does not download a missing object to answer them when that variable is honored. A normal sync does not perform the check and does not set the variable. The parent process environment is left unchanged. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
 
 `--output json` writes one JSON object to stdout. Progress and logs go to stderr. `expected_count` is the selection, `inventory_count` is the whole file, and `scope` is `workspace` or `selection`. `coverage_complete` means every selected path has a row, not that every clone exists.
 
@@ -161,7 +197,7 @@ Fetch may update remote-tracking refs even when the worktrees stay put; the repo
 
 With three attempts, a 5s probe, and a 1s pause, preflight is bounded by 17s plus the time taken to stop child processes. That figure is only the preflight budget, not a bound on fetch or checkout. Fetch and checkout wait for a successful preflight.
 
-Network errors and timeouts are retried. A rejected key, a permission failure, a missing repository, and an untrusted TLS certificate fail that one repository. The others continue. Git is started with `LC_ALL=C`, and the error text is what classifies the failure. An unrecognized error does not start an open-ended retry loop.
+Network errors and timeouts are retried. A rejected key, a permission failure, a missing repository, and an untrusted TLS certificate fail that one repository. Probe, fetch, and planning still run for the other selected repositories. If any selected repository is blocked, checkout does not start for the rest of the selection. Git is started with `LC_ALL=C`, and the error text is what classifies the failure. An unrecognized error does not start an open-ended retry loop.
 
 If the network drops after preflight, a failed fetch checks origin again. Three network failures cancel the repositories still waiting and the Git processes still running. The checks are serialized, so once the outage is confirmed a worker does not run a retry loop of its own. A successful check allows one more fetch. While a fetch is still running, the break can go unnoticed until `--fetch-timeout` expires. There is no background poll of the server.
 

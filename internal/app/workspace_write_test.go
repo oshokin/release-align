@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -17,6 +19,11 @@ type failWriteCloser struct {
 
 // shortWriteCloser reports a partial write and a successful close.
 type shortWriteCloser struct{}
+
+var (
+	errPublishRename = errors.New("rename failed")
+	errPublishSync   = errors.New("sync failed")
+)
 
 // Write returns the injected write error, or accepts the buffer.
 func (f *failWriteCloser) Write(p []byte) (int, error) {
@@ -132,5 +139,134 @@ func TestFinishExclusiveRemovesIncompleteFile(t *testing.T) {
 				t.Fatal("unrelated file changed", readErr)
 			}
 		})
+	}
+}
+
+// TestPublishWorkspaceKeepsOriginalOnWriteErrors checks short write, sync, close, and rename failures.
+func TestPublishWorkspaceKeepsOriginalOnWriteErrors(t *testing.T) {
+	document := sampleDocument(t)
+	original := append([]byte(nil), document.data...)
+	next := document.spec.clone()
+	next.Release = "replacement"
+	cases := []struct {
+		name  string
+		hooks *workspacePublishHooks
+		want  error
+	}{
+		{
+			name: "short",
+			hooks: &workspacePublishHooks{
+				write: func(*os.File, []byte) error {
+					return io.ErrShortWrite
+				},
+			},
+			want: io.ErrShortWrite,
+		},
+		{
+			name: "sync",
+			hooks: &workspacePublishHooks{
+				sync: func(*os.File) error {
+					return errPublishSync
+				},
+			},
+			want: errPublishSync,
+		},
+		{
+			name: "close",
+			hooks: &workspacePublishHooks{
+				close: func(file *os.File) error {
+					return errors.Join(file.Close(), io.ErrUnexpectedEOF)
+				},
+			},
+			want: io.ErrUnexpectedEOF,
+		},
+		{
+			name: "rename",
+			hooks: &workspacePublishHooks{
+				rename: func(string, string) error {
+					return errPublishRename
+				},
+			},
+			want: errPublishRename,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := publishWorkspace(t.Context(), document, next, tc.hooks)
+			if !errors.Is(err, tc.want) || !bytes.Equal(readBytes(t, document.path), original) {
+				t.Fatal(err)
+			}
+
+			assertNoPublishTemp(t, filepath.Dir(document.path))
+		})
+	}
+}
+
+// TestPublishWorkspaceRejectsOversizedReplacement leaves the destination untouched.
+func TestPublishWorkspaceRejectsOversizedReplacement(t *testing.T) {
+	document := sampleDocument(t)
+	original := append([]byte(nil), document.data...)
+	next := document.spec.clone()
+	next.Release = strings.Repeat("a", workspaceMaxBytes)
+
+	if err := publishWorkspace(t.Context(), document, next, nil); !errors.Is(err, errWorkspaceSize) ||
+		!bytes.Equal(readBytes(t, document.path), original) {
+		t.Fatal(err)
+	}
+
+	assertNoPublishTemp(t, filepath.Dir(document.path))
+}
+
+// TestPublishWorkspaceStopsWhenCanceled checks the context before the name is replaced.
+func TestPublishWorkspaceStopsWhenCanceled(t *testing.T) {
+	document := sampleDocument(t)
+	original := append([]byte(nil), document.data...)
+	next := document.spec.clone()
+	next.Release = "replacement"
+	ctx, cancel := context.WithCancel(t.Context())
+	hooks := &workspacePublishHooks{
+		beforeRename: func(string) error {
+			cancel()
+
+			return nil
+		},
+	}
+
+	if err := publishWorkspace(ctx, document, next, hooks); !errors.Is(err, context.Canceled) ||
+		!bytes.Equal(readBytes(t, document.path), original) {
+		t.Fatal(err)
+	}
+
+	assertNoPublishTemp(t, filepath.Dir(document.path))
+}
+
+// sampleDocument writes one small workspace and reads it back for publication tests.
+func sampleDocument(t *testing.T) *workspaceDocument {
+	t.Helper()
+
+	path := saveWorkspace(t, oneProject(t, "group/service", nil))
+
+	document, err := readWorkspaceDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return document
+}
+
+// assertNoPublishTemp fails when a publication temporary file is still present.
+func assertNoPublishTemp(t *testing.T, dir string) {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".release-align-") {
+			t.Fatal("temporary file left behind", entry.Name())
+		}
 	}
 }

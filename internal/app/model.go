@@ -26,6 +26,8 @@ type (
 	gitClient interface {
 		// Local runs a Git command that does not talk to a remote.
 		Local(ctx context.Context, dir string, args ...string) (string, error)
+		// ProbeNoLazyFetch checks the offline option and ignores an unrecognized one.
+		ProbeNoLazyFetch(ctx context.Context) error
 		// Probe checks that origin answers within timeout.
 		Probe(ctx context.Context, dir string, timeout time.Duration) error
 		// Fetch updates origin branches and tags.

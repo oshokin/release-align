@@ -151,6 +151,12 @@ func runWorkspaceItems(
 		return freshnessCached, err
 	}
 
+	if mode == ModeStatus || cfg.DryRun {
+		if err := runner.git.ProbeNoLazyFetch(ctx); err != nil {
+			return freshnessCached, err
+		}
+	}
+
 	if err := runner.bindWorkspaceDirs(ctx, items); err != nil {
 		return freshnessCached, err
 	}

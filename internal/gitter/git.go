@@ -85,6 +85,17 @@ func (c *Client) Local(ctx context.Context, dir string, args ...string) (string,
 	return c.Run(ctx, dir, 0, args...)
 }
 
+// ProbeNoLazyFetch checks --no-lazy-fetch once. An unrecognized option is left unused.
+// A timeout or a missing executable is returned. Later commands still honor GIT_NO_LAZY_FETCH.
+func (c *Client) ProbeNoLazyFetch(ctx context.Context) error {
+	_, err := c.Local(ctx, "", "--no-lazy-fetch", "--version")
+	if err == nil || ExitCode(err) < 0 {
+		return err
+	}
+
+	return nil
+}
+
 // Probe checks that origin answers ls-remote.
 func (c *Client) Probe(ctx context.Context, dir string, timeout time.Duration) error {
 	_, err := c.Run(ctx, dir, timeout, "ls-remote", "--quiet", "origin", "HEAD")

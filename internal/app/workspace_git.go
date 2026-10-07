@@ -14,6 +14,7 @@ import (
 // LocalGit is the small existing gitter.Client surface needed here.
 type LocalGit interface {
 	Local(ctx context.Context, dir string, args ...string) (string, error)
+	ProbeNoLazyFetch(ctx context.Context) error
 }
 
 var ErrWorkspaceTargetMissing = errors.New("workspace target is missing")

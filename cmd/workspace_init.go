@@ -50,6 +50,7 @@ func newWorkspaceCommand() *cobra.Command {
 	flags.StringVar(&handler.file, "file", "", "new workspace JSON filename; must not exist (required)")
 	flags.StringVar(&options.Release, "release", "", "optional human-readable release label")
 	command.AddCommand(initCommand)
+	command.AddCommand(newWorkspaceRefreshCommand())
 
 	return command
 }

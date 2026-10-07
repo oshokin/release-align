@@ -3,7 +3,10 @@ package app
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +62,47 @@ func TestReviewSyncStillFetchesPromisor(t *testing.T) {
 	}
 }
 
+// TestStatusContinuesWhenGitLacksNoLazyFetch keeps reading the worktree when the flag is unknown.
+func TestStatusContinuesWhenGitLacksNoLazyFetch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell git fixture")
+	}
+
+	f := setup(t)
+	calls := installWrappingGit(t)
+	spec := oneProject(t, "group/repo with spaces", nil)
+
+	_, err := runWorkspace(t, f, spec, ModeStatus)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := readGitCalls(t, calls)
+	if !strings.Contains(body, "--no-lazy-fetch") || !strings.Contains(body, "rev-parse") {
+		t.Fatal(body)
+	}
+}
+
+// TestSyncDoesNotProbeNoLazyFetch keeps a normal sync on the installed Git without the offline option.
+func TestSyncDoesNotProbeNoLazyFetch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell git fixture")
+	}
+
+	f := setup(t)
+	calls := installWrappingGit(t)
+	spec := oneProject(t, "group/repo with spaces", nil)
+
+	_, err := runWorkspace(t, f, spec, ModeSync)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(readGitCalls(t, calls), "--no-lazy-fetch") {
+		t.Fatal("sync required --no-lazy-fetch")
+	}
+}
+
 // partialClone is a local clone whose missing release commit would require a promisor fetch.
 func partialClone(t *testing.T) (*fixture, string, string) {
 	t.Helper()
@@ -92,4 +136,53 @@ func localGitSnapshot(t *testing.T, repo string) string {
 	}
 
 	return head + "\n" + string(index) + "\n" + string(fetch)
+}
+
+// installWrappingGit records arguments and forwards every command except the offline probe.
+func installWrappingGit(t *testing.T) string {
+	t.Helper()
+
+	installed, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	body := fmt.Sprintf(
+		"#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\n"+
+			"for arg in \"$@\"; do\n"+
+			"  if [ \"$arg\" = \"--no-lazy-fetch\" ]; then echo 'unknown option' >&2; exit 129; fi\n"+
+			"done\nexec '%s' \"$@\"\n",
+		calls,
+		installed,
+	)
+	installGitScript(t, dir, body)
+
+	return calls
+}
+
+// installGitScript installs one executable named git ahead of the normal PATH.
+func installGitScript(t *testing.T, dir, body string) {
+	t.Helper()
+
+	script := filepath.Join(dir, "git")
+
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// readGitCalls returns the arguments seen by a fake git, or an empty string when it was not started.
+func readGitCalls(t *testing.T, calls string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(calls)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	return string(body)
 }
