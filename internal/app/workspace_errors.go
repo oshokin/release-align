@@ -129,7 +129,7 @@ var (
 	// errWorkspaceSubmodules means the manifest asks west to update submodules.
 	errWorkspaceSubmodules = errors.New("project submodules are not supported")
 	// errWorkspaceRevisionType means a revision was not a string.
-	errWorkspaceRevisionType = errors.New("revision must be a quoted string; a numeric value drops leading zeros")
+	errWorkspaceRevisionType = errors.New("revision must be a string or a full hexadecimal commit id")
 	// errWorkspaceRevisionShort means a short revision is not one local branch or tag.
 	errWorkspaceRevisionShort = errors.New("write refs/heads/<name>, refs/tags/<name>, or a full commit")
 	// errWorkspaceExtension means a new workspace file is not .yml or .yaml.

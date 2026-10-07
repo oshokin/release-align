@@ -208,9 +208,6 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 		LocalTimeout: opts.LocalTimeout,
 		NoLazyFetch:  true,
 	}
-	if err = ResolveWorkspaceRevisions(ctx, gitClient, base, spec); err != nil {
-		return nil, err
-	}
 
 	selected, err := spec.SelectProjects(opts.Repositories, opts.Groups)
 	if err != nil {
@@ -221,18 +218,24 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 		return nil, errArchiveEmpty
 	}
 
+	if err = ResolveWorkspaceRevisions(ctx, gitClient, base, spec, selected); err != nil {
+		return nil, err
+	}
+
 	if err = rejectReservedPaths(selected); err != nil {
 		return nil, err
 	}
 
-	return &archiveJob{
+	job := &archiveJob{
 		ctx:         ctx,
 		opts:        opts,
 		spec:        spec,
 		base:        base,
 		destination: destination,
 		git:         gitClient,
-	}, nil
+	}
+
+	return job, nil
 }
 
 // validateArchiveOptions checks the destination and the time limits.

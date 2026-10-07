@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/oshokin/release-align/internal/gitter"
 )
 
 // WorkspaceInitOptions describes local inventory discovery, not repository synchronization.
@@ -225,6 +227,10 @@ func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
 
 	origin, originErr := readOriginURL(ctx, s.git, dir)
 	if originErr != nil {
+		if !errors.Is(originErr, errWorkspaceInitOrigin) && !errors.Is(originErr, errWorkspaceCredentialURL) {
+			return originErr
+		}
+
 		origin = ""
 
 		s.gaps = append(s.gaps, projectPath)
@@ -251,20 +257,6 @@ func directoryGroups(projectPath string) []string {
 	}
 
 	return groups
-}
-
-// confirmWorkspaceRoot checks the git marker, the real root, and a nonempty origin URL.
-// A missing .git marker is not os.ErrNotExist, so a present directory is not reported as deleted.
-func confirmWorkspaceRoot(ctx context.Context, g LocalGit, dir string) error {
-	if err := confirmWorktree(ctx, g, dir); err != nil {
-		return err
-	}
-
-	if _, err := readOriginURL(ctx, g, dir); err != nil {
-		return fmt.Errorf("%s: %w", dir, err)
-	}
-
-	return nil
 }
 
 // confirmWorktree checks the git marker and the real worktree root.
@@ -304,10 +296,18 @@ func confirmWorktree(ctx context.Context, g LocalGit, dir string) error {
 	return nil
 }
 
-// readOriginURL returns a credential-free origin. The boolean reports that the URL was omitted.
+// readOriginURL returns a credential-free origin and preserves operational Git failures.
 func readOriginURL(ctx context.Context, g LocalGit, dir string) (string, error) {
 	remote, err := g.Local(ctx, dir, "remote", "get-url", "origin")
-	if err != nil || strings.TrimSpace(remote) == "" {
+	if err != nil {
+		if gitter.ExitCode(err) == 2 {
+			return "", errWorkspaceInitOrigin
+		}
+
+		return "", err
+	}
+
+	if strings.TrimSpace(remote) == "" {
 		return "", errWorkspaceInitOrigin
 	}
 
@@ -353,7 +353,7 @@ func listedProjectMissing(ctx context.Context, g LocalGit, base, relative string
 		return false, err
 	}
 
-	if err = confirmWorkspaceRoot(ctx, g, dir); err != nil {
+	if err = confirmWorktree(ctx, g, dir); err != nil {
 		return false, err
 	}
 

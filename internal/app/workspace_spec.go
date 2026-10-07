@@ -64,6 +64,8 @@ type ProjectSpec struct {
 	Revision *RevisionSpec
 	// shortRevision is a project revision that still needs a local ref lookup.
 	shortRevision string
+	// resolvedRevision is a per-run lookup result, never an explicit pin in the document.
+	resolvedRevision *RevisionSpec
 	// CloneDepth is west metadata. workspace clone refuses a file that sets it.
 	CloneDepth *int
 }
@@ -97,14 +99,20 @@ func (w *WorkspaceSpec) RevisionFor(p *ProjectSpec) *RevisionSpec {
 		return p.Revision.clone()
 	}
 
+	if p != nil && p.resolvedRevision != nil {
+		return p.resolvedRevision.clone()
+	}
+
 	if w != nil && w.DefaultRevision != nil {
 		return w.DefaultRevision.clone()
 	}
 
 	if w != nil && w.implicitMaster {
-		return &RevisionSpec{
+		revision := &RevisionSpec{
 			Branch: westDefaultBranch,
 		}
+
+		return revision
 	}
 
 	return nil
@@ -184,6 +192,12 @@ func (w *WorkspaceSpec) WithDefaultBranch(branch string) (*WorkspaceSpec, error)
 	next.shortDefault = ""
 	next.implicitMaster = false
 
+	for _, project := range next.Projects {
+		if project.shortRevision == "" {
+			project.resolvedRevision = nil
+		}
+	}
+
 	if err := next.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errWorkspaceBranchOverride, err)
 	}
@@ -202,7 +216,7 @@ func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 		}
 	}
 
-	return &WorkspaceSpec{
+	cloned := &WorkspaceSpec{
 		SchemaVersion:   w.SchemaVersion,
 		Release:         w.Release,
 		DefaultRevision: w.DefaultRevision.clone(),
@@ -214,6 +228,8 @@ func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 		Projects:        projects,
 		URLGaps:         slices.Clone(w.URLGaps),
 	}
+
+	return cloned
 }
 
 // hasDefault reports that an unpinned project has a revision to inherit.
@@ -292,10 +308,11 @@ func cloneGroupFilters(filters []*GroupFilter) []*GroupFilter {
 			continue
 		}
 
-		out[i] = &GroupFilter{
+		cloned := &GroupFilter{
 			Name:    filter.Name,
 			Disable: filter.Disable,
 		}
+		out[i] = cloned
 	}
 
 	return out
@@ -307,11 +324,13 @@ func (s *GitLabSource) clone() *GitLabSource {
 		return nil
 	}
 
-	return &GitLabSource{
+	cloned := &GitLabSource{
 		URL:           s.URL,
 		Groups:        slices.Clone(s.Groups),
 		CloneProtocol: s.CloneProtocol,
 	}
+
+	return cloned
 }
 
 // clone returns an independent project.
@@ -320,15 +339,18 @@ func (p *ProjectSpec) clone() *ProjectSpec {
 		return nil
 	}
 
-	return &ProjectSpec{
-		Name:          p.Name,
-		Path:          p.Path,
-		URL:           p.URL,
-		Groups:        slices.Clone(p.Groups),
-		Revision:      p.Revision.clone(),
-		shortRevision: p.shortRevision,
-		CloneDepth:    cloneDepth(p.CloneDepth),
+	cloned := &ProjectSpec{
+		Name:             p.Name,
+		Path:             p.Path,
+		URL:              p.URL,
+		Groups:           slices.Clone(p.Groups),
+		Revision:         p.Revision.clone(),
+		shortRevision:    p.shortRevision,
+		resolvedRevision: p.resolvedRevision.clone(),
+		CloneDepth:       cloneDepth(p.CloneDepth),
 	}
+
+	return cloned
 }
 
 // cloneDepth copies one optional west clone-depth.
@@ -348,9 +370,11 @@ func (r *RevisionSpec) clone() *RevisionSpec {
 		return nil
 	}
 
-	return &RevisionSpec{
+	cloned := &RevisionSpec{
 		Branch: r.Branch,
 		Tag:    r.Tag,
 		Commit: r.Commit,
 	}
+
+	return cloned
 }

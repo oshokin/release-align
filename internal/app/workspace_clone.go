@@ -256,15 +256,6 @@ func lockClone(base, path string) (*cloneHold, error) {
 // locked lists GitLab, checks every selected path, then clones what is missing.
 func (j *cloneJob) locked(ctx context.Context) (*CloneReport, error) {
 	j.spec = j.document.spec
-	resolver := &gitter.Client{
-		LocalTimeout: j.opts.LocalTimeout,
-		NoLazyFetch:  true,
-	}
-
-	if err := ResolveWorkspaceRevisions(ctx, resolver, j.base, j.spec); err != nil {
-		return j.report, err
-	}
-
 	if err := applyCloneTimeouts(j.opts, j.spec); err != nil {
 		return j.report, err
 	}
@@ -339,7 +330,7 @@ func prepareCloneSource(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error 
 
 // cloneConfig carries timeouts into the shared GitLab client helper.
 func cloneConfig(opts *WorkspaceCloneOptions, base string) *Config {
-	return &Config{
+	cfg := &Config{
 		BaseDir:       base,
 		ProbeTimeout:  opts.ProbeTimeout,
 		FetchTimeout:  opts.FetchTimeout,
@@ -351,4 +342,6 @@ func cloneConfig(opts *WorkspaceCloneOptions, base string) *Config {
 		progress:      opts.progress,
 		WorkspaceFile: opts.WorkspaceFile,
 	}
+
+	return cfg
 }
