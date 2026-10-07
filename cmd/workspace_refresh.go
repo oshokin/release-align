@@ -15,14 +15,20 @@ import (
 
 // workspaceRefreshCommand compares a workspace file with local clones.
 type workspaceRefreshCommand struct {
+	// baseDir is the root that contains the clones.
 	baseDir string
-	file    string
-	add     []string
-	addAll  bool
+	// file is the workspace document.
+	file string
+	// add lists paths to append.
+	add []string
+	// addAll appends every new local clone.
+	addAll bool
 }
 
 var (
-	errWorkspaceRefreshFlags     = errors.New("workspace refresh requires --base-dir and --file")
+	// errWorkspaceRefreshFlags means --base-dir or --file was omitted.
+	errWorkspaceRefreshFlags = errors.New("workspace refresh requires --base-dir and --file")
+	// errWorkspaceRefreshExclusive means both --add and --add-all were set.
 	errWorkspaceRefreshExclusive = errors.New("workspace refresh accepts either repeated --add or --add-all")
 )
 
@@ -35,7 +41,7 @@ func newWorkspaceRefreshCommand() *cobra.Command {
 		Long: "Scan --base-dir and compare it with --file. Without --add or --add-all, nothing is written.\n" +
 			"Groups of new entries come from parent directories, as in workspace init. Existing groups, pins, and order stay.\n" +
 			"Missing listed paths are reported and kept. A repository that exists only on a server is not visible.\n" +
-			"The command does not fetch or switch branches. An unsupported --no-lazy-fetch option is left unused.",
+			"The command does not fetch or switch branches. Lazy-fetch suppression is best effort and depends on the installed Git.",
 		Args:          cobra.NoArgs,
 		RunE:          handler.run,
 		SilenceUsage:  true,

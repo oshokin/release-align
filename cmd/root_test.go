@@ -44,6 +44,7 @@ func TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment(t *testing.T) {
 		{"workspace", "--help"},
 		{"workspace", "init", "--help"},
 		{"workspace", "refresh", "--help"},
+		{"workspace", "clone", "--help"},
 	}
 
 	for _, args := range commands {

@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// diagnosticURL finds URLs in Git text so userinfo can be removed.
 var diagnosticURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://\S+`)
 
 // RedactText removes userinfo and credential query values from Git text.

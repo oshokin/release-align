@@ -1,0 +1,383 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/oshokin/release-align/internal/gitlab"
+	"github.com/oshokin/release-align/internal/gitter"
+)
+
+// remoteHooks replaces GitLab access in tests. Production leaves it nil.
+type remoteHooks struct {
+	// token is sent as PRIVATE-TOKEN. It is never written to the workspace file.
+	token string
+	// httpClient is the test server client. Production uses the default client.
+	httpClient *http.Client
+	// allowLocalClone lets tests clone filesystem paths. Production leaves it false.
+	allowLocalClone bool
+}
+
+// localRoot is one Git worktree found under the base directory.
+type localRoot struct {
+	// path is the workspace-relative directory.
+	path string
+	// origin is the raw origin URL from git remote get-url.
+	origin string
+}
+
+// remoteCheck is the local result that a GitLab comparison is attached to.
+type remoteCheck struct {
+	// cfg carries the --remote flag, timeouts, and test hooks.
+	cfg *Config
+	// spec is the workspace inventory.
+	spec *WorkspaceSpec
+	// report is the local alignment result.
+	report *WorkspaceReport
+	// runErr is the error from the local operation, if one happened.
+	runErr error
+}
+
+// projectCompare is one complete catalog matched against disk and the workspace file.
+type projectCompare struct {
+	// git runs local Git commands for origin lookups.
+	git LocalGit
+	// base is the directory that contains the clones.
+	base string
+	// spec is the workspace inventory.
+	spec *WorkspaceSpec
+	// projects is the complete non-archived catalog.
+	projects []*gitlab.Project
+	// allowLocal matches filesystem clone URLs. Tests set it.
+	allowLocal bool
+}
+
+const (
+	// remoteStatusChecked means every configured group was listed.
+	remoteStatusChecked = "checked"
+	// remoteStatusFailed means the catalog is incomplete.
+	remoteStatusFailed = "failed"
+	// remoteStatusSkipped means GitLab was not queried.
+	remoteStatusSkipped = "not_checked"
+	// remoteReasonCancel means the run was canceled before the listing.
+	remoteReasonCancel = "canceled"
+	// remoteReasonNetwork means an earlier network failure blocked another listing.
+	remoteReasonNetwork = "prior_network_failure"
+	// remoteNotCheckedMsg tells the user how to request a listing.
+	remoteNotCheckedMsg = "GitLab inventory: not checked; use --remote"
+)
+
+// PrepareRemote rejects a requested catalog before checkout when the configuration is unusable.
+func PrepareRemote(cfg *Config, spec *WorkspaceSpec) error {
+	if cfg == nil || !cfg.Remote {
+		return nil
+	}
+
+	if cfg.DryRun {
+		return errRemoteDryRun
+	}
+
+	if spec == nil || spec.GitLab == nil {
+		return errGitLabSource
+	}
+
+	if err := spec.GitLab.Validate(); err != nil {
+		return err
+	}
+
+	if gitlabToken(cfg) == "" {
+		return errRemoteToken
+	}
+
+	return nil
+}
+
+// attachRemote adds the catalog after the local operation, or records why it was skipped.
+func attachRemote(ctx context.Context, check *remoteCheck) (*WorkspaceReport, error) {
+	if check == nil {
+		return nil, errRemoteInventory
+	}
+
+	if check.report == nil {
+		return nil, check.runErr
+	}
+
+	cfg := check.cfg
+	spec := check.spec
+	report := check.report
+	runErr := check.runErr
+
+	if cfg == nil || !cfg.Remote {
+		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, "", remoteNotCheckedMsg)
+
+		return report, runErr
+	}
+
+	if ctx.Err() != nil {
+		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, remoteReasonCancel, ctx.Err().Error())
+
+		return report, preferErr(runErr, context.Cause(ctx))
+	}
+
+	if remoteNetworkFailed(report, runErr) {
+		note := "GitLab inventory: not checked because the host was already unreachable"
+		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, remoteReasonNetwork, note)
+
+		return report, runErr
+	}
+
+	if cfg.progress != nil {
+		_, _ = fmt.Fprintln(cfg.progress, "Checking GitLab inventory...")
+	}
+
+	projects, err := listRemoteProjects(ctx, cfg, spec.GitLab)
+	if err != nil {
+		return failRemote(spec, report, runErr, err)
+	}
+
+	query := &projectCompare{
+		git:        offlineGit(cfg),
+		base:       cfg.BaseDir,
+		spec:       spec,
+		projects:   projects,
+		allowLocal: allowLocal(cfg),
+	}
+
+	inventory, err := compareProjects(ctx, query)
+	if err != nil {
+		return failRemote(spec, report, runErr, err)
+	}
+
+	report.RemoteInventory = inventory
+
+	return report, runErr
+}
+
+// listRemoteProjects reads every configured group once.
+func listRemoteProjects(ctx context.Context, cfg *Config, source *GitLabSource) ([]*gitlab.Project, error) {
+	client := gitlabClient(cfg, source)
+
+	return client.ListProjects(ctx, source.Groups)
+}
+
+// compareProjects matches one complete catalog to the disk and the workspace file.
+func compareProjects(ctx context.Context, query *projectCompare) (*RemoteInventory, error) {
+	if query == nil {
+		return nil, errRemoteInventory
+	}
+
+	roots, err := scanLocalClones(ctx, query.git, query.base, query.spec)
+	if err != nil {
+		return nil, err
+	}
+
+	diffQuery := &remoteDiffQuery{
+		spec:       query.spec,
+		roots:      roots,
+		base:       query.base,
+		allowLocal: query.allowLocal,
+		count:      len(query.projects),
+	}
+	diff := newRemoteDiff(diffQuery)
+	diff.catalog.VisibleCount = len(query.projects)
+	diff.classifyAll(query.projects)
+	diff.leftovers()
+	diff.finish()
+
+	return checkedInventory(query.spec.GitLab, diff.catalog), nil
+}
+
+// failRemote records an incomplete catalog and chooses the process error.
+func failRemote(spec *WorkspaceSpec, report *WorkspaceReport, runErr, cause error) (*WorkspaceReport, error) {
+	wrapped := fmt.Errorf("%w: %w", errRemoteInventory, cause)
+	if report.Ready && report.Mode == ModeSync {
+		wrapped = fmt.Errorf("%w: %w", errRemoteAfterSync, cause)
+	}
+
+	report.Errors = append(report.Errors, wrapped.Error())
+	report.RemoteInventory = remoteNote(spec, remoteStatusFailed, "", wrapped.Error())
+
+	if runErr == nil || errors.Is(runErr, errWorkspaceNotReady) {
+		return report, wrapped
+	}
+
+	return report, runErr
+}
+
+// remoteNote builds a result that has no catalog counts.
+func remoteNote(spec *WorkspaceSpec, status, reason, message string) *RemoteInventory {
+	note := &RemoteInventory{
+		Status: status,
+		Reason: reason,
+		Error:  message,
+	}
+	if spec != nil && spec.GitLab != nil {
+		note.URL = spec.GitLab.URL
+		note.Groups = slices.Clone(spec.GitLab.Groups)
+	}
+
+	return note
+}
+
+// checkedInventory marks a complete listing.
+func checkedInventory(source *GitLabSource, catalog *RemoteCatalog) *RemoteInventory {
+	inventory := &RemoteInventory{
+		Status:           remoteStatusChecked,
+		CheckedAt:        time.Now().Format(time.RFC3339),
+		IncludeSubgroups: boolPtr(true),
+		IncludeArchived:  boolPtr(false),
+		IncludeShared:    boolPtr(false),
+		Catalog:          catalog,
+	}
+	if source != nil {
+		inventory.URL = source.URL
+		inventory.Groups = slices.Clone(source.Groups)
+	}
+
+	return inventory
+}
+
+// boolPtr returns a distinct bool for JSON false values.
+func boolPtr(value bool) *bool {
+	copied := value
+
+	return &copied
+}
+
+// gitlabToken reads the test hook or GITLAB_TOKEN. The value is not logged.
+func gitlabToken(cfg *Config) string {
+	if cfg != nil && cfg.remoteHooks != nil && cfg.remoteHooks.token != "" {
+		return cfg.remoteHooks.token
+	}
+
+	return os.Getenv("GITLAB_TOKEN")
+}
+
+// gitlabClient builds the thin API client for this invocation.
+func gitlabClient(cfg *Config, source *GitLabSource) *gitlab.Client {
+	client := &gitlab.Client{
+		BaseURL:        source.URL,
+		Token:          gitlabToken(cfg),
+		AttemptTimeout: cfg.ProbeTimeout,
+		Budget:         cfg.FetchTimeout,
+		Attempts:       cfg.Attempts,
+		RetryDelay:     cfg.RetryDelay,
+	}
+	if cfg.remoteHooks != nil {
+		client.HTTP = cfg.remoteHooks.httpClient
+	}
+
+	return client
+}
+
+// allowLocal reports the test-only filesystem clone match.
+func allowLocal(cfg *Config) bool {
+	return cfg != nil && cfg.remoteHooks != nil && cfg.remoteHooks.allowLocalClone
+}
+
+// offlineGit reads local origins without asking for a promisor object.
+func offlineGit(cfg *Config) *gitter.Client {
+	timeout := time.Duration(0)
+	if cfg != nil {
+		timeout = cfg.LocalTimeout
+	}
+
+	return &gitter.Client{
+		LocalTimeout: timeout,
+		NoLazyFetch:  true,
+	}
+}
+
+// remoteNetworkFailed reports a confirmed transport failure of the main operation.
+func remoteNetworkFailed(report *WorkspaceReport, err error) bool {
+	if gitter.NetworkError(err) {
+		return true
+	}
+
+	if report == nil {
+		return false
+	}
+
+	for _, row := range report.Rows {
+		if row != nil && row.ReasonCode == reasonNetwork {
+			return true
+		}
+	}
+
+	return false
+}
+
+// scanLocalClones reads discovered roots and listed roots the walk does not enter.
+func scanLocalClones(
+	ctx context.Context,
+	g LocalGit,
+	base string,
+	spec *WorkspaceSpec,
+) (map[string]*localRoot, error) {
+	discovered, err := DiscoverWorkspaceProjects(ctx, g, base)
+	if err != nil {
+		return nil, err
+	}
+
+	roots := make(map[string]*localRoot, len(discovered))
+	for _, project := range discovered {
+		root, rootErr := readLocalRoot(ctx, g, base, project.Path)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+
+		roots[project.Path] = root
+	}
+
+	if spec == nil {
+		return roots, nil
+	}
+
+	for _, project := range spec.Projects {
+		if roots[project.Path] != nil {
+			continue
+		}
+
+		missing, missErr := listedProjectMissing(ctx, g, base, project.Path)
+		if missErr != nil {
+			return nil, missErr
+		}
+
+		if missing {
+			continue
+		}
+
+		root, rootErr := readLocalRoot(ctx, g, base, project.Path)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+
+		roots[project.Path] = root
+	}
+
+	return roots, nil
+}
+
+// readLocalRoot reads one origin. The caller has already accepted the directory.
+func readLocalRoot(ctx context.Context, g LocalGit, base, relative string) (*localRoot, error) {
+	dir, err := ResolveProjectDirectory(base, relative)
+	if err != nil {
+		return nil, err
+	}
+
+	origin, err := g.Local(ctx, dir, "remote", "get-url", "origin")
+	if err != nil {
+		return nil, err
+	}
+
+	return &localRoot{
+		path:   relative,
+		origin: strings.TrimSpace(origin),
+	}, nil
+}

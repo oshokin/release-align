@@ -10,27 +10,39 @@ import (
 // WorkspaceRefreshOptions selects local clones to compare or append.
 // Add and AddAll are mutually exclusive. An empty selection previews without writing.
 type WorkspaceRefreshOptions struct {
+	// BaseDir is the root that contains the clones.
 	BaseDir string
-	Add     []string
-	AddAll  bool
+	// Add lists workspace paths to append. It is mutually exclusive with AddAll.
+	Add []string
+	// AddAll appends every discovered clone that is not already listed.
+	AddAll bool
+	// publish replaces publication steps in tests.
 	publish *workspacePublishHooks
 }
 
 // WorkspaceRefreshResult is a local inventory diff. It does not say whether revisions are ready.
 type WorkspaceRefreshResult struct {
-	Listed   int
+	// Listed is the number of projects already in the workspace file.
+	Listed int
+	// Unlisted are local clones that are not in the file.
 	Unlisted []*ProjectSpec
-	Missing  []string
-	Added    []string
-	Written  bool
+	// Missing are listed paths that are not on disk.
+	Missing []string
+	// Added are the paths appended by this call.
+	Added []string
+	// Written reports that the file was replaced.
+	Written bool
 }
 
 var (
 	// ErrWorkspaceRefreshUsage marks flags or a workspace document that refresh will not apply.
-	ErrWorkspaceRefreshUsage     = errors.New("invalid workspace refresh")
-	errWorkspaceRefreshFlags     = errors.New("workspace refresh requires base-dir and file")
+	ErrWorkspaceRefreshUsage = errors.New("invalid workspace refresh")
+	// errWorkspaceRefreshFlags means the base directory or file was omitted.
+	errWorkspaceRefreshFlags = errors.New("workspace refresh requires base-dir and file")
+	// errWorkspaceRefreshExclusive means both --add and --add-all were set.
 	errWorkspaceRefreshExclusive = errors.New("workspace refresh accepts either repeated --add or --add-all")
-	errWorkspaceRefreshUnknown   = errors.New("local repository is not a new clone under base-dir")
+	// errWorkspaceRefreshUnknown means a requested path is not a new local clone.
+	errWorkspaceRefreshUnknown = errors.New("local repository is not a new clone under base-dir")
 )
 
 // RefreshWorkspace compares a workspace file with local clones.
@@ -199,10 +211,6 @@ func refreshInventory(
 ) (*WorkspaceRefreshResult, []*ProjectSpec, error) {
 	base, err := canonicalWorkspaceBase(baseDir)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	if err = g.ProbeNoLazyFetch(ctx); err != nil {
 		return nil, nil, err
 	}
 

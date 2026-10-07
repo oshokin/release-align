@@ -10,7 +10,7 @@ A loop of `git pull` waits out its own timeout in each repository and merges how
 
 `go get` and `go.work` change module requirements. The service directory stays on the commit it was cloned at. The GitLab web UI updates the project on the server and never sees uncommitted files on the machine.
 
-Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Offline commands set `GIT_NO_LAZY_FETCH=1`. They also try `--no-lazy-fetch` once; a Git that does not recognize the option continues without it. That was checked on Git 2.43.0 and Git 2.51.1. A normal sync does not use either mechanism. Running also needs the installed OpenSSH, or an SSH command of your own in `GIT_SSH_COMMAND` or `GIT_SSH`. The program builds and runs on Linux, macOS, and Windows.
+Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Offline commands set `GIT_NO_LAZY_FETCH=1` on the Git processes they start. There is no explicit fetch. Suppression of lazy fetch is best effort and depends on the installed Git: a build that ignores the variable can still download a missing partial-clone object. That behavior was checked with Git 2.51.1, which honors the variable, and the commands also run on Git 2.43.0. A normal sync does not set the variable. Running also needs the installed OpenSSH, or an SSH command of your own in `GIT_SSH_COMMAND` or `GIT_SSH`. The program builds and runs on Linux, macOS, and Windows.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ go build -o release-align .
   --branch Release-26.3.0 \
   --file ./mailion.workspace.json
 
-# Plan from refs already on disk. No network, no writes.
+# Plan from refs already on disk. No fetch and no writes. Lazy fetch suppression is best effort.
 ./release-align --workspace ./mailion.workspace.json --dry-run
 
 ./release-align --workspace ./mailion.workspace.json --jobs 4
@@ -63,6 +63,7 @@ release-align --workspace ./mailion.workspace.json --group search --repo storage
 | `--fetch-timeout` | | `1m` | `FETCH_TIMEOUT` | Timeout of one fetch |
 | `--local-timeout` | | `40s` | `LOCAL_TIMEOUT` | Timeout of one local Git command |
 | `--output` | | `text` | | `text` or `json` |
+| `--remote` | | `false` | | After the local operation, compare `gitlab.groups` with the disk and the workspace. Not combined with `--dry-run` |
 
 A duration needs a Go unit on the command line and in the environment: `5s`, `750ms`, `1m`. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
 
@@ -95,7 +96,7 @@ release-align completion powershell
 
 ### release-align status
 
-Reads cached refs and worktrees. It does not contact a remote and does not accept `--dry-run`.
+Reads cached refs and worktrees. Without `--remote` it does not call GitLab. It does not accept `--dry-run`. `--remote` adds the group inventory after the local check and does not clone. `freshness=cached` means the refs used for readiness were already local; it is not a certificate that every installed Git build stayed off the network.
 
 ```bash
 release-align status --base-dir "$HOME/src/gitlab.stageoffice.ru" \
@@ -163,7 +164,7 @@ An unlisted clone is not an error. Another project under the same directory may 
 
 Refresh does not fetch, switch, or ask the server whether `default_branch` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready. `status` does that, and it still looks only at the file.
 
-A repository that was created on the server but never cloned is not in this scan. Finding those projects would need the GitLab API, which this command does not call.
+A repository that was created on the server but never cloned is not in this scan. `status --remote` and `workspace clone` read that list from the GitLab groups saved in the file. `refresh` does not call the API.
 
 While it writes, refresh creates `<file>.lock` next to the workspace with `O_EXCL` and does not wait. The lock coordinates release-align processes. An editor does not take it. If a crash leaves the lock, confirm that no refresh is running, then delete that file. The program does not delete a lock it did not create and does not treat an old lock as free. A preview does not create the lock.
 
@@ -179,19 +180,41 @@ The fast-forward then uses that resolved commit. Afterward the worktree is read 
 
 The update itself is a local `git merge --ff-only` from the resolved commit. There is no second network request, no merge commit, no rebase, and no push. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is left in place.
 
-Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not contact the network (`freshness` `cached`). `status`, `--dry-run`, `workspace init`, and `workspace refresh` run `git --no-lazy-fetch --version` once per invocation. When Git rejects that option, they leave it unused and continue. A missing Git executable or a timeout keeps that original error. Those commands still set `GIT_NO_LAZY_FETCH=1` on the Git processes they start, so a partial clone does not download a missing object to answer them when that variable is honored. A normal sync does not perform the check and does not set the variable. The parent process environment is left unchanged. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
+Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not fetch (`freshness` `cached`). They set `GIT_NO_LAZY_FETCH=1` on their Git processes. A Git that honors it will not download a missing partial-clone object to answer them. A Git that ignores the variable may. A missing Git executable or a timeout is still reported by the command that needed Git. A normal sync does not set the variable. The parent process environment is left unchanged. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. `--dry-run --remote` is rejected; use `status --remote` to ask GitLab. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
 
 `--output json` writes one JSON object to stdout. Progress and logs go to stderr. `expected_count` is the selection, `inventory_count` is the whole file, and `scope` is `workspace` or `selection`. `coverage_complete` means every selected path has a row, not that every clone exists.
 
 | Exit | Meaning |
 | --- | --- |
 | 0 | Every selected project matches, or a dry-run plan has no blocker |
-| 1 | Git, network, access, or I/O failure, including a JSON write error |
+| 1 | Git, network, access, or I/O failure, including a JSON write error. Also a requested GitLab inventory that could not be read, even when the selected branches were already switched |
 | 2 | Flags or the workspace document were rejected before fetch |
 | 3 | The selection is not ready |
 | 130 | Ctrl+C |
 
-`status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created. Nothing is pushed, tagged, or built.
+`status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created by `status` or `sync`. Nothing is pushed, tagged, or built.
+
+An optional `gitlab` object names the server scope. `gitlab.groups` are GitLab namespace paths, including subgroups. `projects[].groups` stay the local selection labels. One is not derived from the other. `clone_protocol` is `ssh` or `https`; an empty value means `ssh`. The API token is `GITLAB_TOKEN` in the environment, sent as `Private-Token`. It is not stored in the file, the command line, or a clone URL. A file with `gitlab` will not load in an older binary. A file without it still loads. `workspace init --gitlab-url` and repeatable `--gitlab-group` only save that object. They do not call the API.
+
+```bash
+release-align status --workspace ./mailion.workspace.json --base-dir "$BASE_DIR" --remote
+
+release-align workspace clone \
+  --workspace ./mailion.workspace.json \
+  --base-dir "$BASE_DIR" \
+  --repo mailion/search/new-indexer
+
+release-align workspace clone \
+  --workspace ./mailion.workspace.json \
+  --base-dir "$BASE_DIR" \
+  --all
+```
+
+`--remote` on `status` or on a sync checks the saved groups after the local operation and prints the difference. It does not clone and it does not change the workspace file. Without `--remote` the report says the inventory was not checked. `ready` counts selected workspace rows. Uncloned projects in the GitLab scope are a separate list, not a failed selection. Archived projects and projects shared in from outside the group are omitted. If the API does not return a complete list, the report says the catalog is unknown and does not claim that nothing is new. After a confirmed network failure or a cancel of the sync, the API is not asked again. If the branches were switched and the inventory request then fails, the message says both: alignment completed, inventory failed, nothing was cloned. The exit status is 1.
+
+`workspace clone` downloads missing checkouts into `<base-dir>/<path_with_namespace>`, reuses a matching checkout, and appends new rows without changing pins or order. `--repo` and `--all` cannot be combined. `--all` is the saved server scope, not the whole GitLab instance and not `--group`. A project with no default branch is skipped by `--all` and rejected by `--repo`. An occupied path or a different origin is left alone. Clones run one after another, on the remote default branch, without a depth filter. `--clone-timeout` defaults to 15m. A later `release-align` aligns the release. If one clone fails, finished checkouts stay on disk and completed new rows are still saved. If the JSON write fails, those checkouts stay and the output includes a recovery command. Ctrl-C does not start that write. A lock on the base directory is taken before the workspace file lock. A held lock is reported as a lock. A missing directory or a permission error keeps that filesystem error.
+
+The workspace lock file is `<file>.lock`, created with `O_EXCL`. Only an existing lock is described as held. Other failures from creating it keep the original error.
 
 ## Network and parallelism
 
@@ -231,7 +254,7 @@ Git is not asked for a password. Existing credentials and `ssh-agent` are used. 
 
 ## Building
 
-The code lives in `cmd` and in four packages under `internal`: `app` (the workspace inventory and the sync), `gitter` (running Git and applying process timeouts), `retry` (repeating the origin check), and `logger` (zap, and writes from several workers).
+The code lives in `cmd` and in five packages under `internal`: `app` (the workspace inventory and the sync), `gitlab` (the group project list), `gitter` (running Git and applying process timeouts), `retry` (repeating a check), and `logger` (zap, and writes from several workers).
 
 `--attempts 3` allows two retries after the first check. `--attempts 1` makes one call and does not start the retry engine. Inside the engine, zero retries means no limit, so a single attempt deliberately skips the engine. Canceling the parent context stops retries at once. A timeout of one Git command is retried while that parent context is still alive.
 

@@ -54,7 +54,19 @@ func workspaceUsage(err error) bool {
 		errors.Is(err, errWorkspaceUnknownProject) ||
 		errors.Is(err, errWorkspacePathKind) ||
 		errors.Is(err, errWorkspacePath) ||
-		errors.Is(err, errWorkspaceDuplicate)
+		errors.Is(err, errWorkspaceDuplicate) ||
+		errors.Is(err, errGitLabSource) ||
+		errors.Is(err, errGitLabURL) ||
+		errors.Is(err, errGitLabGroups) ||
+		errors.Is(err, errGitLabProtocol) ||
+		errors.Is(err, errRemoteDryRun) ||
+		errors.Is(err, errRemoteToken) ||
+		errors.Is(err, errCloneSelection) ||
+		errors.Is(err, errCloneUnknown) ||
+		errors.Is(err, errCloneBranch) ||
+		errors.Is(err, errCloneAlign) ||
+		errors.Is(err, errTimeoutRange) ||
+		errors.Is(err, errWorkspaceOutput)
 }
 
 // workspaceResultError returns an error when the report is not a success.

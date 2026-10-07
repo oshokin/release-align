@@ -1,0 +1,323 @@
+package gitlab
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestListProjectsPaginatesAndDedupes(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+
+		if r.Header.Get("Private-Token") != "secret" {
+			t.Errorf("token header = %q", r.Header.Get("Private-Token"))
+		}
+
+		query := r.URL.Query()
+		if query.Get("include_subgroups") != "true" || query.Get("with_shared") != "false" ||
+			query.Get("archived") != "false" || query.Get("per_page") != "100" {
+			t.Fatalf("query %s", r.URL.RawQuery)
+		}
+
+		page, convErr := strconv.Atoi(query.Get("page"))
+		if convErr != nil || page < 1 {
+			page = 1
+		}
+
+		start := (page - 1) * projectsPerPage
+		total := 101
+		end := min(start+projectsPerPage, total)
+
+		batch := make([]*Project, 0, end-start)
+		for id := start + 1; id <= end; id++ {
+			project := &Project{
+				ID:                id,
+				PathWithNamespace: "mailion/svc-" + strconv.Itoa(id),
+				DefaultBranch:     "master",
+			}
+			batch = append(batch, project)
+		}
+
+		encodeJSON(t, w, batch)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	client.Attempts = 1
+	projects, err := client.ListProjects(context.Background(), []string{"mailion"})
+
+	if err != nil || len(projects) != 101 || calls.Load() != 2 {
+		t.Fatalf("projects %d calls %d err %v", len(projects), calls.Load(), err)
+	}
+}
+
+func TestListProjectsStopsOnEmptyNextHeader(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("X-Next-Page", "")
+		batch := make([]*Project, projectsPerPage)
+
+		for i := range batch {
+			batch[i] = &Project{
+				ID:                i + 1,
+				PathWithNamespace: "mailion/full-" + strconv.Itoa(i),
+				DefaultBranch:     "master",
+			}
+		}
+
+		encodeJSON(t, w, batch)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	projects, err := client.ListProjects(context.Background(), []string{"mailion"})
+
+	if err != nil || len(projects) != projectsPerPage || calls.Load() != 1 {
+		t.Fatalf("len %d calls %d err %v", len(projects), calls.Load(), err)
+	}
+}
+
+func TestListProjectsRejectsRepeatedPageAndLimits(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Next-Page", r.URL.Query().Get("page"))
+		project := &Project{
+			ID:                1,
+			PathWithNamespace: "mailion/one",
+			DefaultBranch:     "master",
+		}
+		page := []*Project{project}
+		encodeJSON(t, w, page)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil {
+		t.Fatal("repeated page succeeded")
+	}
+
+	limited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		batch := make([]*Project, projectsPerPage)
+		for i := range batch {
+			batch[i] = &Project{
+				ID:                i + 1,
+				PathWithNamespace: "mailion/p-" + strconv.Itoa(i),
+				DefaultBranch:     "master",
+			}
+		}
+
+		encodeJSON(t, w, batch)
+	}))
+	t.Cleanup(limited.Close)
+
+	client = testClient(limited.URL, limited.Client())
+	client.MaxPages = 1
+
+	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil {
+		t.Fatal("page limit succeeded")
+	}
+}
+
+func TestListProjectsPageFailureIsIncomplete(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+
+		if r.URL.Query().Get("page") == "2" {
+			http.Error(w, "secret-token-body", http.StatusInternalServerError)
+
+			return
+		}
+
+		batch := make([]*Project, projectsPerPage)
+		for i := range batch {
+			batch[i] = &Project{
+				ID:                i + 1,
+				PathWithNamespace: "mailion/p-" + strconv.Itoa(i),
+				DefaultBranch:     "master",
+			}
+		}
+
+		encodeJSON(t, w, batch)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	client.Attempts = 1
+	_, err := client.ListProjects(context.Background(), []string{"mailion", "other"})
+
+	if err == nil || calls.Load() != 2 || strings.Contains(err.Error(), "secret-token-body") {
+		t.Fatal(err, calls.Load())
+	}
+}
+
+func TestListProjectsDedupesGroupsAndRejectsContradiction(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := 7
+		path := "mailion/shared"
+
+		if r.URL.Path == "/api/v4/groups/other/projects" {
+			path = "other/shared"
+		}
+
+		project := &Project{
+			ID:                id,
+			PathWithNamespace: path,
+			DefaultBranch:     "master",
+		}
+		page := []*Project{project}
+		encodeJSON(t, w, page)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	if _, err := client.ListProjects(context.Background(), []string{"mailion", "other"}); err == nil {
+		t.Fatal("contradictory paths succeeded")
+	}
+}
+
+func TestListProjectsAuthIsNotRetried(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		http.Error(w, "no", http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	client.Attempts = 3
+
+	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
+	}
+}
+
+func TestListProjectsRetriesTransientThenStops(t *testing.T) {
+	var first, second atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v4/groups/other/projects" {
+			second.Add(1)
+		} else {
+			first.Add(1)
+		}
+
+		http.Error(w, "down", http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	client.Attempts = 3
+	client.RetryDelay = time.Millisecond
+
+	if _, err := client.ListProjects(context.Background(), []string{"mailion", "other"}); err == nil {
+		t.Fatal("outage succeeded")
+	}
+
+	if first.Load() != 3 || second.Load() != 0 {
+		t.Fatalf("first %d second %d", first.Load(), second.Load())
+	}
+}
+
+func TestListProjectsDoesNotFollowRedirect(t *testing.T) {
+	var leaked atomic.Int32
+
+	other := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		leaked.Add(1)
+	}))
+	t.Cleanup(other.Close)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/api/v4/groups/mailion/projects", http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+
+	client := testClient(server.URL, server.Client())
+	client.Attempts = 3
+
+	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil || leaked.Load() != 0 {
+		t.Fatal(err, leaked.Load())
+	}
+}
+
+func TestListProjectsTLSFailureIsNotRetried(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(server.Close)
+
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Fatal("default transport")
+	}
+
+	transport := base.Clone()
+	counting := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls.Add(1)
+
+		return transport.RoundTrip(r)
+	})
+	httpClient := &http.Client{
+		Transport: counting,
+	}
+	client := testClient(server.URL, httpClient)
+	client.Attempts = 3
+
+	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
+	}
+}
+
+func TestListProjectsHonorsCancel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := testClient(server.URL, server.Client())
+	client.Budget = time.Second
+
+	if _, err := client.ListProjects(ctx, []string{"mailion"}); err == nil {
+		t.Fatal("canceled list succeeded")
+	}
+}
+
+func testClient(base string, httpClient *http.Client) *Client {
+	return &Client{
+		BaseURL:        base,
+		Token:          "secret",
+		HTTP:           httpClient,
+		AttemptTimeout: time.Second,
+		Budget:         5 * time.Second,
+		Attempts:       1,
+		RetryDelay:     time.Millisecond,
+	}
+}
+
+func encodeJSON(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Error(err)
+	}
+}

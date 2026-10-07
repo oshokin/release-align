@@ -40,9 +40,11 @@ const (
 func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	cfg := app.DefaultConfig()
 	root := &cobra.Command{
-		Use:           "release-align",
-		Short:         "Switch local Git clones to the revisions in a workspace file",
-		Long:          "Requires --workspace. Each selected project is moved to its exact branch, tag, or commit. The run fails when a selected project is not ready.",
+		Use:   "release-align",
+		Short: "Switch local Git clones to the revisions in a workspace file",
+		Long: "Requires --workspace. Each selected project is moved to its exact branch, tag, or commit. " +
+			"The run fails when a selected project is not ready. " +
+			"--remote asks GitLab for the configured groups after that and does not clone.",
 		Version:       fullVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -141,6 +143,12 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 	flags.StringArrayVar(&cfg.Repositories, "repo", nil, "Select a workspace project by its relative path; repeatable")
 	flags.StringArrayVar(&cfg.Groups, "group", nil, "Select a workspace group; repeatable")
 	flags.StringVar(&cfg.Output, "output", cfg.Output, "Output format: text or json")
+	flags.BoolVar(
+		&cfg.Remote,
+		"remote",
+		false,
+		"After the local operation, compare GitLab groups with the disk and workspace",
+	)
 	flags.DurationVar(&cfg.ProbeTimeout, "probe-timeout", cfg.ProbeTimeout, "timeout per git ls-remote probe")
 	flags.DurationVar(&cfg.RetryDelay, "retry-delay", cfg.RetryDelay, "delay between failed network probes")
 	flags.DurationVar(&cfg.FetchTimeout, "fetch-timeout", cfg.FetchTimeout, "timeout per fetch")

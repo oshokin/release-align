@@ -19,9 +19,17 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 		return report, errConfigNil
 	}
 
+	if err := PrepareRemote(cfg, spec); err != nil {
+		report.Errors = []string{err.Error()}
+		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, "", err.Error())
+
+		return report, err
+	}
+
 	selected, err := spec.SelectProjects(cfg.Repositories, cfg.Groups)
 	if err != nil {
 		report.Errors = []string{err.Error()}
+		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, "", err.Error())
 
 		return report, err
 	}
@@ -29,8 +37,16 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 	items := newWorkspaceItems(spec, selected)
 	report.Rows = workspaceRows(items)
 	freshness, runErr := runWorkspaceItems(ctx, cfg, items, mode)
+	report, runErr = finishWorkspace(ctx, report, items, freshness, runErr)
 
-	return finishWorkspace(ctx, report, items, freshness, runErr)
+	check := &remoteCheck{
+		cfg:    cfg,
+		spec:   spec,
+		report: report,
+		runErr: runErr,
+	}
+
+	return attachRemote(ctx, check)
 }
 
 // ExitCodeForWorkspace maps a workspace run error to a process status.
@@ -149,12 +165,6 @@ func runWorkspaceItems(
 
 	if err := runner.useProbeRetries(); err != nil {
 		return freshnessCached, err
-	}
-
-	if mode == ModeStatus || cfg.DryRun {
-		if err := runner.git.ProbeNoLazyFetch(ctx); err != nil {
-			return freshnessCached, err
-		}
 	}
 
 	if err := runner.bindWorkspaceDirs(ctx, items); err != nil {

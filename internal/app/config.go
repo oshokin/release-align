@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,12 @@ type Config struct {
 	Groups []string
 	// Output is text or json.
 	Output string
+	// Remote compares the workspace with GitLab after the local operation.
+	Remote bool
+	// progress receives lines that must stay off JSON stdout.
+	progress io.Writer
+	// remoteHooks replaces the token and HTTP client in tests.
+	remoteHooks *remoteHooks
 	// beforeCheckout runs once after a clean plan and before the first switch.
 	// It is nil outside tests.
 	beforeCheckout func()
@@ -49,6 +56,15 @@ const (
 	// gitNoOverwriteIgnore keeps ignored files from being replaced by checkout.
 	gitNoOverwriteIgnore = "--no-overwrite-ignore"
 )
+
+// SetProgress records where inventory progress is written. Nil discards it.
+func (c *Config) SetProgress(w io.Writer) {
+	if c == nil {
+		return
+	}
+
+	c.progress = w
+}
 
 // JSON reports whether stdout must contain only the workspace document.
 func (c *Config) JSON() bool {

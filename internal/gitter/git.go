@@ -17,7 +17,8 @@ import (
 type Client struct {
 	// LocalTimeout limits Git commands that do not talk to a remote.
 	LocalTimeout time.Duration
-	// NoLazyFetch prevents read-only commands from contacting promisor remotes.
+	// NoLazyFetch sets GIT_NO_LAZY_FETCH=1 for this client's processes.
+	// A Git build that does not understand the variable may still contact a promisor remote.
 	NoLazyFetch bool
 }
 
@@ -85,20 +86,22 @@ func (c *Client) Local(ctx context.Context, dir string, args ...string) (string,
 	return c.Run(ctx, dir, 0, args...)
 }
 
-// ProbeNoLazyFetch checks --no-lazy-fetch once. An unrecognized option is left unused.
-// A timeout or a missing executable is returned. Later commands still honor GIT_NO_LAZY_FETCH.
-func (c *Client) ProbeNoLazyFetch(ctx context.Context) error {
-	_, err := c.Local(ctx, "", "--no-lazy-fetch", "--version")
-	if err == nil || ExitCode(err) < 0 {
-		return err
-	}
-
-	return nil
-}
-
 // Probe checks that origin answers ls-remote.
 func (c *Client) Probe(ctx context.Context, dir string, timeout time.Duration) error {
 	_, err := c.Run(ctx, dir, timeout, "ls-remote", "--quiet", "origin", "HEAD")
+	return err
+}
+
+// ProbeURL checks that one remote URL answers ls-remote. dir may be empty.
+func (c *Client) ProbeURL(ctx context.Context, remote string, timeout time.Duration) error {
+	_, err := c.Run(ctx, "", timeout, "ls-remote", "--quiet", "--", remote, "HEAD")
+	return err
+}
+
+// Clone copies remote into dir with a normal checkout of the remote default branch.
+// dir's parent must exist. Submodules are not cloned.
+func (c *Client) Clone(ctx context.Context, remote, dir string, timeout time.Duration) error {
+	_, err := c.Run(ctx, "", timeout, "clone", "--no-recurse-submodules", "--", remote, dir)
 	return err
 }
 

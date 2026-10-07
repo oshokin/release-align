@@ -12,10 +12,13 @@ import (
 
 // workspaceInitCommand owns only the flags used by offline inventory creation.
 type workspaceInitCommand struct {
+	// options are the discovery flags.
 	options *app.WorkspaceInitOptions
-	file    string
+	// file is the workspace path to create.
+	file string
 }
 
+// errWorkspaceInitFlags means a required init flag was omitted.
 var errWorkspaceInitFlags = errors.New("workspace init requires --base-dir, --branch and --file")
 
 // newWorkspaceCommand groups inventory management without inheriting synchronization flags.
@@ -49,8 +52,21 @@ func newWorkspaceCommand() *cobra.Command {
 	)
 	flags.StringVar(&handler.file, "file", "", "new workspace JSON filename; must not exist (required)")
 	flags.StringVar(&options.Release, "release", "", "optional human-readable release label")
+	flags.StringVar(
+		&options.GitLabURL,
+		"gitlab-url",
+		"",
+		"https origin saved for later --remote and clone; no API call",
+	)
+	flags.StringArrayVar(
+		&options.GitLabGroups,
+		"gitlab-group",
+		nil,
+		"GitLab group path to save; repeatable; no API call",
+	)
 	command.AddCommand(initCommand)
 	command.AddCommand(newWorkspaceRefreshCommand())
+	command.AddCommand(newWorkspaceCloneCommand())
 
 	return command
 }

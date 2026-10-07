@@ -8,6 +8,7 @@ import (
 	"github.com/oshokin/release-align/internal/app"
 )
 
+// environmentFlags maps RELEASE_ALIGN_* suffixes to Cobra flag names.
 var environmentFlags = map[string]string{
 	"BASE_DIR":      "base-dir",
 	"JOBS":          "jobs",

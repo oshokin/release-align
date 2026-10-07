@@ -241,6 +241,16 @@ func TestPublishWorkspaceStopsWhenCanceled(t *testing.T) {
 	assertNoPublishTemp(t, filepath.Dir(document.path))
 }
 
+// TestAuditLockPreservesIOError distinguishes an absent parent from a held lock.
+func TestAuditLockPreservesIOError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-parent", "workspace.json")
+	_, err := lockWorkspaceFile(path)
+
+	if !errors.Is(err, os.ErrNotExist) || errors.Is(err, errWorkspaceRefreshLock) {
+		t.Fatalf("filesystem cause was lost: got %v", err)
+	}
+}
+
 // sampleDocument writes one small workspace and reads it back for publication tests.
 func sampleDocument(t *testing.T) *workspaceDocument {
 	t.Helper()

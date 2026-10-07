@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// errWorkspaceAppendCandidate means a discovered project cannot be appended.
 var errWorkspaceAppendCandidate = errors.New("invalid discovered workspace project")
 
 // AppendDiscoveredProjects preserves existing entries and appends selected discoveries.

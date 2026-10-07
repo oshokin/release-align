@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -113,68 +112,5 @@ func TestNoShellInterpolation(t *testing.T) {
 
 	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !os.IsNotExist(statErr) {
 		t.Fatal("shell interpolation")
-	}
-}
-
-// TestProbeNoLazyFetchLeavesUnknownOptionUnused checks that a rejected flag is not a fatal probe.
-func TestProbeNoLazyFetchLeavesUnknownOptionUnused(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell git fixture")
-	}
-
-	dir := t.TempDir()
-	script := filepath.Join(dir, "git")
-	body := "#!/bin/sh\nfor arg in \"$@\"; do\n" +
-		"  if [ \"$arg\" = \"--no-lazy-fetch\" ]; then echo 'unknown option' >&2; exit 129; fi\ndone\n" +
-		"echo unexpected >&2\nexit 99\n"
-
-	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	client := &Client{
-		LocalTimeout: time.Second,
-	}
-	if err := client.ProbeNoLazyFetch(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestProbeNoLazyFetchKeepsLaunchFailures checks a missing executable and a command timeout.
-func TestProbeNoLazyFetchKeepsLaunchFailures(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell git fixture")
-	}
-
-	missing := t.TempDir()
-	originalPath := os.Getenv("PATH")
-
-	t.Setenv("PATH", missing)
-
-	client := &Client{
-		LocalTimeout: time.Second,
-	}
-	err := client.ProbeNoLazyFetch(context.Background())
-
-	if !errors.Is(err, exec.ErrNotFound) {
-		t.Fatal(err)
-	}
-
-	dir := t.TempDir()
-	script := filepath.Join(dir, "git")
-
-	if err = os.WriteFile(script, []byte("#!/bin/sh\nsleep 30\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+originalPath)
-
-	client.LocalTimeout = 100 * time.Millisecond
-	err = client.ProbeNoLazyFetch(context.Background())
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal(err)
 	}
 }

@@ -10,46 +10,121 @@ import (
 
 // ResolvedRevision is the exact object a project must match.
 type ResolvedRevision struct {
-	Kind  string `json:"kind"`
+	// Kind is branch, tag, or commit.
+	Kind string `json:"kind"`
+	// Value is the requested branch, tag, or commit name.
 	Value string `json:"value"`
-	OID   string `json:"oid"`
+	// OID is the full object id that value resolved to.
+	OID string `json:"oid"`
 }
 
 // ObservedState is the worktree read after planning or checkout.
 type ObservedState struct {
-	Head      string `json:"head"`
-	Branch    string `json:"branch"`
-	Dirty     bool   `json:"dirty"`
+	// Head is the commit currently checked out.
+	Head string `json:"head"`
+	// Branch is the current branch name, empty when detached.
+	Branch string `json:"branch"`
+	// Dirty reports uncommitted changes that block a switch.
+	Dirty bool `json:"dirty"`
+	// Operation is the Git command that was in progress, if any.
 	Operation string `json:"operation,omitempty"`
-	Verified  bool   `json:"verified"`
+	// Verified reports that the observed commit was read from the worktree.
+	Verified bool `json:"verified"`
 }
 
 // WorkspaceRow is one selected project in the report.
 type WorkspaceRow struct {
-	Path       string            `json:"path"`
-	Expected   *ResolvedRevision `json:"expected,omitempty"`
-	Actual     *ObservedState    `json:"actual,omitempty"`
-	Outcome    string            `json:"outcome"`
-	ReasonCode string            `json:"reason_code,omitempty"`
-	Message    string            `json:"message,omitempty"`
-	StashOID   string            `json:"stash_oid,omitempty"`
-	Ready      bool              `json:"ready"`
+	// Path is the workspace project path.
+	Path string `json:"path"`
+	// Expected is the revision the run was asked to match.
+	Expected *ResolvedRevision `json:"expected,omitempty"`
+	// Actual is the worktree state after the operation.
+	Actual *ObservedState `json:"actual,omitempty"`
+	// Outcome is the short result name for this row.
+	Outcome string `json:"outcome"`
+	// ReasonCode is a stable code when the row is not ready.
+	ReasonCode string `json:"reason_code,omitempty"`
+	// Message explains the outcome in plain text.
+	Message string `json:"message,omitempty"`
+	// StashOID is set only when a stash was recorded. This run does not stash.
+	StashOID string `json:"stash_oid,omitempty"`
+	// Ready reports that this selected project matches its revision.
+	Ready bool `json:"ready"`
 }
 
 // WorkspaceReport is the text and JSON result of a workspace run.
 type WorkspaceReport struct {
-	SchemaVersion  int             `json:"schema_version"`
-	Release        string          `json:"release,omitempty"`
-	Mode           string          `json:"mode"`
-	Freshness      string          `json:"freshness"`
-	DryRun         bool            `json:"dry_run"`
-	ExpectedCount  int             `json:"expected_count"`
-	InventoryCount int             `json:"inventory_count"`
-	Scope          string          `json:"scope,omitempty"`
-	Coverage       bool            `json:"coverage_complete"`
-	Ready          bool            `json:"ready"`
-	Errors         []string        `json:"errors"`
-	Rows           []*WorkspaceRow `json:"repositories"`
+	// SchemaVersion is the report document version.
+	SchemaVersion int `json:"schema_version"`
+	// Release is the requested release name when one was set.
+	Release string `json:"release,omitempty"`
+	// Mode is status, sync, or dry-run.
+	Mode string `json:"mode"`
+	// Freshness says whether refs were read locally or fetched.
+	Freshness string `json:"freshness"`
+	// DryRun reports that no checkout was attempted.
+	DryRun bool `json:"dry_run"`
+	// ExpectedCount is the number of selected projects.
+	ExpectedCount int `json:"expected_count"`
+	// InventoryCount is the number of rows written.
+	InventoryCount int `json:"inventory_count"`
+	// Scope is the workspace group filter, when one was set.
+	Scope string `json:"scope,omitempty"`
+	// Coverage reports that every selected project has a row.
+	Coverage bool `json:"coverage_complete"`
+	// Ready reports that every selected project matches.
+	Ready bool `json:"ready"`
+	// Errors lists failures of this run. It is empty, not null, when there are none.
+	Errors []string `json:"errors"`
+	// Rows are the selected projects in workspace order.
+	Rows []*WorkspaceRow `json:"repositories"`
+	// RemoteInventory is the GitLab comparison for this invocation.
+	RemoteInventory *RemoteInventory `json:"remote_inventory,omitempty"`
+}
+
+// RemoteInventory is the GitLab catalog comparison for one invocation.
+// Counts are present only after a complete listing.
+type RemoteInventory struct {
+	// Status is checked, failed, or not_checked.
+	Status string `json:"status"`
+	// CheckedAt is the local time of a completed listing.
+	CheckedAt string `json:"checked_at,omitempty"`
+	// URL is the GitLab origin from the workspace file.
+	URL string `json:"url,omitempty"`
+	// Groups are the namespace paths that were listed.
+	Groups []string `json:"groups,omitempty"`
+	// IncludeSubgroups reports that subgroups were requested.
+	IncludeSubgroups *bool `json:"include_subgroups,omitempty"`
+	// IncludeArchived reports that archived projects were excluded.
+	IncludeArchived *bool `json:"include_archived,omitempty"`
+	// IncludeShared reports that shared projects were excluded.
+	IncludeShared *bool `json:"include_shared,omitempty"`
+	// Reason explains why a check was skipped.
+	Reason string `json:"reason,omitempty"`
+	// Error is the inventory failure text. It is absent when the listing completed.
+	Error string `json:"error,omitempty"`
+	// Catalog is present only after every configured group was read.
+	Catalog *RemoteCatalog `json:"catalog,omitempty"`
+}
+
+// RemoteCatalog is the diff between GitLab, the disk, and the workspace file.
+type RemoteCatalog struct {
+	// VisibleCount is the number of non-archived projects in the listing.
+	VisibleCount int `json:"visible_count"`
+	// NotCloned lists projects that can be downloaded.
+	NotCloned []string `json:"not_cloned"`
+	// LocalUnlisted lists clones that are not yet in the workspace file.
+	LocalUnlisted []string `json:"local_unlisted"`
+	// Conflicts lists paths that must not be replaced automatically.
+	Conflicts []string `json:"conflicts"`
+	// NotReturned lists workspace paths missing from a complete listing of their group.
+	NotReturned []string `json:"not_returned"`
+	// DifferentPath lists projects whose clone is not at the expected path.
+	DifferentPath []string `json:"different_path"`
+	// OutsideScope lists workspace paths that are not in the configured groups.
+	OutsideScope []string `json:"outside_scope"`
+	// SkippedEmpty lists projects that have no default branch.
+	SkippedEmpty []string `json:"skipped_empty"`
 }
 
 // MatchesContract is independent of outcome text and refuses unverified state.

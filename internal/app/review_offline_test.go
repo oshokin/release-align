@@ -78,7 +78,7 @@ func TestStatusContinuesWhenGitLacksNoLazyFetch(t *testing.T) {
 	}
 
 	body := readGitCalls(t, calls)
-	if !strings.Contains(body, "--no-lazy-fetch") || !strings.Contains(body, "rev-parse") {
+	if strings.Contains(body, "--no-lazy-fetch") || !strings.Contains(body, "rev-parse") {
 		t.Fatal(body)
 	}
 }

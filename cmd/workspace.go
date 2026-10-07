@@ -16,7 +16,9 @@ func newStatusCommand(cfg *app.Config) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Check a workspace locally without fetching or switching",
-		Long:  "status reads cached refs and worktrees. It does not contact a remote. Workspace mode uses exact targets and fails when selected projects are not ready.",
+		Long: "status reads cached refs and worktrees. Without --remote it does not call GitLab. " +
+			"--remote adds the group inventory after the local check and does not clone. " +
+			"--dry-run is rejected, including together with --remote.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.NoArgs(cmd, args); err != nil {
 				return &commandError{
@@ -60,6 +62,10 @@ func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error
 
 	spec, err := app.LoadWorkspace(cfg.WorkspaceFile)
 	if err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	if err = app.PrepareRemote(cfg, spec); err != nil {
 		return usageCommand(cmd, cfg, mode, err)
 	}
 
@@ -128,6 +134,7 @@ func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSp
 		}
 	}()
 
+	cfg.SetProgress(cmd.ErrOrStderr())
 	ctx := logger.ToContext(cmd.Context(), log)
 	report, runErr := app.RunWorkspace(ctx, cfg, spec, mode)
 
@@ -140,6 +147,15 @@ func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSp
 		return &commandError{
 			code:  exitFailed,
 			cause: writeErr,
+		}
+	}
+
+	if !cfg.JSON() {
+		if writeErr = app.WriteRemoteInventory(cmd.OutOrStdout(), cfg, report); writeErr != nil {
+			return &commandError{
+				code:  exitFailed,
+				cause: writeErr,
+			}
 		}
 	}
 

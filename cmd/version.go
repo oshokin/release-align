@@ -8,8 +8,11 @@ import (
 
 // Build metadata is injected through -ldflags. It belongs to the CLI, not app data.
 var (
-	Version   = "dev"
-	Commit    = "unknown"
+	// Version is the release version. The default is dev.
+	Version = "dev"
+	// Commit is the source revision. The default is unknown.
+	Commit = "unknown"
+	// BuildTime is the build timestamp. The default is unknown.
 	BuildTime = "unknown"
 )
 

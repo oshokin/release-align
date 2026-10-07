@@ -13,24 +13,40 @@ import (
 
 // WorkspaceInitOptions describes local inventory discovery, not repository synchronization.
 type WorkspaceInitOptions struct {
+	// BaseDir is the root walked for existing clones.
 	BaseDir string
-	Branch  string
+	// Branch is stored as the workspace default branch.
+	Branch string
+	// Release is an optional label stored in the new file.
 	Release string
+	// GitLabURL is saved when set. Init does not call the API.
+	GitLabURL string
+	// GitLabGroups are saved when set. They are not inferred from directories.
+	GitLabGroups []string
 }
 
 // workspaceScanner accumulates existing repository roots without entering their contents.
 type workspaceScanner struct {
-	git      LocalGit
-	base     string
+	// git runs local Git commands.
+	git LocalGit
+	// base is the directory being walked.
+	base string
+	// projects are the clones found so far.
 	projects []*ProjectSpec
 }
 
 var (
-	errWorkspaceInitOptions   = errors.New("workspace init requires base-dir and branch")
-	errWorkspaceInitBaseRepo  = errors.New("base-dir must contain repositories; it must not itself be a repository")
-	errWorkspaceInitMarker    = errors.New(".git must be a directory or regular gitfile, not a symbolic link")
-	errWorkspaceInitEmpty     = errors.New("no Git working trees found under base-dir")
-	errWorkspaceInitOrigin    = errors.New("discovered repository has no usable origin URL")
+	// errWorkspaceInitOptions means the base directory or branch was omitted.
+	errWorkspaceInitOptions = errors.New("workspace init requires base-dir and branch")
+	// errWorkspaceInitBaseRepo means the base directory itself is a repository.
+	errWorkspaceInitBaseRepo = errors.New("base-dir must contain repositories; it must not itself be a repository")
+	// errWorkspaceInitMarker means .git is a symbolic link.
+	errWorkspaceInitMarker = errors.New(".git must be a directory or regular gitfile, not a symbolic link")
+	// errWorkspaceInitEmpty means the walk found no worktrees.
+	errWorkspaceInitEmpty = errors.New("no Git working trees found under base-dir")
+	// errWorkspaceInitOrigin means a discovered repository has no usable origin.
+	errWorkspaceInitOrigin = errors.New("discovered repository has no usable origin URL")
+	// errWorkspaceListedInvalid means a listed path is not a usable repository.
 	errWorkspaceListedInvalid = errors.New("listed workspace path is not a usable repository")
 )
 
@@ -45,10 +61,6 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		Branch: options.Branch,
 	}
 	if err := revision.Validate(); err != nil {
-		return nil, err
-	}
-
-	if err := g.ProbeNoLazyFetch(ctx); err != nil {
 		return nil, err
 	}
 
@@ -76,6 +88,13 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		DefaultBranch: options.Branch,
 		Projects:      projects,
 	}
+	if options.GitLabURL != "" || len(options.GitLabGroups) > 0 {
+		spec.GitLab = &GitLabSource{
+			URL:    options.GitLabURL,
+			Groups: slices.Clone(options.GitLabGroups),
+		}
+	}
+
 	if err = spec.Validate(); err != nil {
 		return nil, err
 	}

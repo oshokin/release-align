@@ -7,18 +7,26 @@ import (
 
 // fetchOutcome is one repository fetch and its typed error.
 type fetchOutcome struct {
+	// repo is the repository that was fetched.
 	repo *repository
-	err  error
+	// err is the fetch error. Nil means the fetch finished.
+	err error
 }
 
 // workspaceItem is one selected project and the report row the collector owns.
 type workspaceItem struct {
-	spec     *ProjectSpec
-	row      *WorkspaceRow
-	repo     *repository
+	// spec is the workspace entry.
+	spec *ProjectSpec
+	// row is the report line owned by the collector.
+	row *WorkspaceRow
+	// repo is the local Git repository, when one was opened.
+	repo *repository
+	// revision is the pin or the workspace default for this project.
 	revision *RevisionSpec
+	// resolved is the object id that revision resolved to.
 	resolved *ResolvedRevision
-	dir      string
+	// dir is the absolute worktree path.
+	dir string
 }
 
 // newWorkspaceItems builds one work item per selected project.

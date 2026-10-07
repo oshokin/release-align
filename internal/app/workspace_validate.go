@@ -6,10 +6,19 @@ import (
 	"strings"
 )
 
+// pathDotDot is the parent-directory segment rejected in project paths.
+const pathDotDot = ".."
+
 // Validate checks the inventory shape before any Git command runs.
 func (w *WorkspaceSpec) Validate() error {
 	if w == nil || w.SchemaVersion != 1 || len(w.Projects) == 0 {
 		return errWorkspaceSchema
+	}
+
+	if w.GitLab != nil {
+		if err := w.GitLab.Validate(); err != nil {
+			return err
+		}
 	}
 
 	branch := &RevisionSpec{
@@ -92,7 +101,7 @@ func canonicalProjectPath(s string) bool {
 	}
 
 	for part := range strings.SplitSeq(s, "/") {
-		if part == ".." || part == ".git" {
+		if part == pathDotDot || part == ".git" {
 			return false
 		}
 	}

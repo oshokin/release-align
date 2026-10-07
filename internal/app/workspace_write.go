@@ -13,25 +13,37 @@ import (
 
 // workspaceDocument is one regular workspace file read for a refresh.
 type workspaceDocument struct {
+	// path is the workspace file path.
 	path string
+	// info is the file metadata captured before publication.
 	info os.FileInfo
+	// data is the raw file body.
 	data []byte
+	// spec is the decoded inventory.
 	spec *WorkspaceSpec
 }
 
 // workspacePublishHooks replaces steps of one publication. Nil hooks use the real filesystem.
 // A close hook must close the file. Tests use this to inject short writes and rename failures.
 type workspacePublishHooks struct {
-	write        func(*os.File, []byte) error
-	sync         func(*os.File) error
-	close        func(*os.File) error
-	rename       func(oldName, newName string) error
+	// write replaces the write of the temporary file.
+	write func(*os.File, []byte) error
+	// sync replaces the fsync of the temporary file.
+	sync func(*os.File) error
+	// close replaces closing the temporary file.
+	close func(*os.File) error
+	// rename replaces the final rename onto the destination.
+	rename func(oldName, newName string) error
+	// beforeRename runs after the temporary file is closed and before rename.
 	beforeRename func(path string) error
 }
 
 var (
-	errWorkspaceFileKind    = errors.New("workspace file must be a regular file, not a symbolic link")
+	// errWorkspaceFileKind means the path is not a regular file.
+	errWorkspaceFileKind = errors.New("workspace file must be a regular file, not a symbolic link")
+	// errWorkspaceFileChanged means the file changed while it was locked.
 	errWorkspaceFileChanged = errors.New("workspace file changed before publication")
+	// errWorkspaceRefreshLock means another writer already holds the lock.
 	errWorkspaceRefreshLock = errors.New(
 		"workspace refresh lock is held; another refresh may be running, or a stale lock remains",
 	)
@@ -84,7 +96,11 @@ func lockWorkspaceFile(path string) (func(), error) {
 
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errWorkspaceRefreshLock, lockPath)
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("%w: %s: %w", errWorkspaceRefreshLock, lockPath, err)
+		}
+
+		return nil, fmt.Errorf("create workspace lock %s: %w", lockPath, err)
 	}
 
 	_, writeErr := fmt.Fprintf(file, "pid=%d\n", os.Getpid())

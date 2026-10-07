@@ -14,9 +14,9 @@ import (
 // LocalGit is the small existing gitter.Client surface needed here.
 type LocalGit interface {
 	Local(ctx context.Context, dir string, args ...string) (string, error)
-	ProbeNoLazyFetch(ctx context.Context) error
 }
 
+// ErrWorkspaceTargetMissing means the requested revision is not in the local repository.
 var ErrWorkspaceTargetMissing = errors.New("workspace target is missing")
 
 // ResolveRevision reads cached refs after the caller's fetch, never substitutes another target.
