@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // WorkspaceRefreshOptions selects local clones to compare or append.
@@ -32,6 +33,12 @@ type WorkspaceRefreshResult struct {
 	Added []string
 	// Written reports that the file was replaced.
 	Written bool
+}
+
+// localTimeoutGit is a Git client whose local command limit can be replaced.
+type localTimeoutGit interface {
+	// SetLocalTimeout sets the limit used for commands that do not pass their own timeout.
+	SetLocalTimeout(timeout time.Duration)
 }
 
 var (
@@ -78,6 +85,24 @@ func validateRefreshOptions(filename string, options *WorkspaceRefreshOptions) e
 	return nil
 }
 
+// applyRefreshLocalTimeout copies timeouts.local onto a client that can store it.
+// Refresh has no timeout flag, so the workspace value replaces the built-in default.
+func applyRefreshLocalTimeout(g LocalGit, spec *WorkspaceSpec) error {
+	client, ok := g.(localTimeoutGit)
+	if !ok || spec == nil || spec.Timeouts == nil || spec.Timeouts.Local == nil {
+		return nil
+	}
+
+	local, err := unlockedDuration(false, "local", spec.Timeouts.Local, 0)
+	if err != nil {
+		return err
+	}
+
+	client.SetLocalTimeout(local)
+
+	return nil
+}
+
 // refreshWrites reports whether the caller asked to add repositories.
 func refreshWrites(options *WorkspaceRefreshOptions) bool {
 	return options.AddAll || len(options.Add) > 0
@@ -92,6 +117,10 @@ func previewWorkspaceRefresh(
 ) (*WorkspaceRefreshResult, error) {
 	document, err := loadRefreshDocument(filename)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = applyRefreshLocalTimeout(g, document.spec); err != nil {
 		return nil, err
 	}
 
@@ -124,6 +153,10 @@ func writeWorkspaceRefresh(
 
 	document, err := loadRefreshDocument(path)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = applyRefreshLocalTimeout(g, document.spec); err != nil {
 		return nil, err
 	}
 

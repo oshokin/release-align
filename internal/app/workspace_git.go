@@ -88,28 +88,8 @@ func ResolveProjectDirectory(base, relative string) (string, error) {
 // ObserveWorkspaceState does not decide whether switching is safe.
 // safeCurrent remains mandatory before mutations.
 func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*ObservedState, error) {
-	top, err := g.Local(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
+	if err := sameWorktreeRoot(ctx, g, dir); err != nil {
 		return nil, err
-	}
-
-	want, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	got, err := filepath.EvalSymlinks(top)
-	if err != nil {
-		return nil, err
-	}
-
-	wi, err := os.Stat(want)
-	if err != nil {
-		return nil, err
-	}
-	gi, err := os.Stat(got)
-	if err != nil || !os.SameFile(wi, gi) {
-		return nil, errWorkspaceRoot
 	}
 
 	head, err := g.Local(ctx, dir, "rev-parse", "--verify", "HEAD^{commit}")
@@ -163,6 +143,41 @@ func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*Observ
 	state.Verified = workspaceOID.MatchString(head)
 
 	return state, nil
+}
+
+// sameWorktreeRoot reports that dir is the root returned by git rev-parse --show-toplevel.
+// A linked worktree is accepted. A subdirectory of another repository is not.
+func sameWorktreeRoot(ctx context.Context, g LocalGit, dir string) error {
+	top, err := g.Local(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return err
+	}
+
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return err
+	}
+
+	got, err := filepath.EvalSymlinks(top)
+	if err != nil {
+		return err
+	}
+
+	wi, err := os.Stat(want)
+	if err != nil {
+		return err
+	}
+
+	gi, err := os.Stat(got)
+	if err != nil {
+		return err
+	}
+
+	if !os.SameFile(wi, gi) {
+		return errWorkspaceRoot
+	}
+
+	return nil
 }
 
 // revisionRef selects the cached ref that must resolve to the requested revision.

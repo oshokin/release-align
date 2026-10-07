@@ -4,7 +4,9 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,7 +18,7 @@ func (j *archiveJob) write(planned []*plannedRepo) error {
 		return err
 	}
 
-	destination := j.opts.File
+	destination := j.destination
 
 	parent := filepath.Dir(destination)
 
@@ -42,6 +44,10 @@ func (j *archiveJob) write(planned []*plannedRepo) error {
 
 	if err = temp.Close(); err != nil {
 		return archivePhase(destination, "close", err)
+	}
+
+	if err = archiveCanceled(j.ctx); err != nil {
+		return err
 	}
 
 	if err = os.Link(tempName, destination); err != nil {
@@ -98,7 +104,7 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 	repoCtx, cancel := context.WithDeadline(j.ctx, deadline)
 	defer cancel()
 
-	tempName, err := repoZipPath(filepath.Dir(j.opts.File))
+	tempName, err := repoZipPath(filepath.Dir(j.destination))
 	if err != nil {
 		return archivePhase(repo.Path, "archive", err)
 	}
@@ -120,7 +126,7 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 	return copyRepoZip(repoCtx, writer, names, repo.Path, tempName)
 }
 
-// repoZipPath reserves a name in dir and removes the empty file so git archive can create it.
+// repoZipPath reserves an empty file in dir. git archive overwrites that absolute path.
 func repoZipPath(dir string) (string, error) {
 	temp, err := os.CreateTemp(dir, ".release-align-repo-*.zip")
 	if err != nil {
@@ -131,10 +137,6 @@ func repoZipPath(dir string) (string, error) {
 	if err = temp.Close(); err != nil {
 		_ = os.Remove(name)
 
-		return "", err
-	}
-
-	if err = os.Remove(name); err != nil {
 		return "", err
 	}
 
@@ -155,16 +157,30 @@ func copyRepoZip(ctx context.Context, writer *zip.Writer, names *archiveNames, p
 			return err
 		}
 
-		if err = copyRepoEntry(writer, names, project, file); err != nil {
+		if err = copyRepoEntry(ctx, writer, names, project, file); err != nil {
 			return archivePhase(project, "copy", err)
 		}
+	}
+
+	if err = archiveCanceled(ctx); err != nil {
+		return archivePhase(project, "copy", err)
 	}
 
 	return nil
 }
 
-// copyRepoEntry validates one path and copies its stored bytes.
-func copyRepoEntry(writer *zip.Writer, names *archiveNames, project string, file *zip.File) error {
+// copyRepoEntry validates one path and copies its stored bytes in bounded chunks.
+func copyRepoEntry(
+	ctx context.Context,
+	writer *zip.Writer,
+	names *archiveNames,
+	project string,
+	file *zip.File,
+) error {
+	if err := archiveCanceled(ctx); err != nil {
+		return err
+	}
+
 	if !allowedRepoEntry(file.Name, project) {
 		return errArchiveEntry
 	}
@@ -174,7 +190,49 @@ func copyRepoEntry(writer *zip.Writer, names *archiveNames, project string, file
 		return err
 	}
 
-	return writer.Copy(file)
+	raw, err := file.OpenRaw()
+	if err != nil {
+		return err
+	}
+
+	header := file.FileHeader
+
+	dst, err := writer.CreateRaw(&header)
+	if err != nil {
+		return err
+	}
+
+	return copyBounded(ctx, dst, raw)
+}
+
+// copyBounded copies raw ZIP bytes and returns when the context ends between chunks.
+func copyBounded(ctx context.Context, dst io.Writer, src io.Reader) error {
+	buf := make([]byte, archiveCopyChunk)
+
+	for {
+		if err := archiveCanceled(ctx); err != nil {
+			return err
+		}
+
+		n, err := src.Read(buf)
+		if n > 0 {
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+
+			if cancelErr := archiveCanceled(ctx); cancelErr != nil {
+				return cancelErr
+			}
+		}
+
+		if errors.Is(err, io.EOF) {
+			return archiveCanceled(ctx)
+		}
+
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // manifest builds the document stored beside the sources.

@@ -36,6 +36,10 @@ func (j *archiveJob) planOne(project *ProjectSpec) (*plannedRepo, error) {
 		return nil, archivePhase(project.Path, "resolve", err)
 	}
 
+	if err = sameWorktreeRoot(j.ctx, j.git, dir); err != nil {
+		return nil, archivePhase(project.Path, "resolve", err)
+	}
+
 	revision := j.spec.RevisionFor(project)
 
 	resolved, err := ResolveRevision(j.ctx, j.git, dir, revision)

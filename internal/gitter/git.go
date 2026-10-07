@@ -86,6 +86,15 @@ func (c *Client) Local(ctx context.Context, dir string, args ...string) (string,
 	return c.Run(ctx, dir, 0, args...)
 }
 
+// SetLocalTimeout sets the limit used when a command does not pass its own timeout.
+func (c *Client) SetLocalTimeout(timeout time.Duration) {
+	if c == nil || timeout <= 0 {
+		return
+	}
+
+	c.LocalTimeout = timeout
+}
+
 // Probe checks that origin answers ls-remote.
 func (c *Client) Probe(ctx context.Context, dir string, timeout time.Duration) error {
 	_, err := c.Run(ctx, dir, timeout, "ls-remote", "--quiet", "origin", "HEAD")

@@ -1,16 +1,21 @@
 # release-align
 
-release-align moves the clones listed in a workspace file onto exact revisions, and stops the run if origin cannot be reached.
+release-align prepares the clones under one directory for one release. There is no superproject. `workspace init` finds the repositories already on disk, sync fast-forwards each selected worktree onto its workspace revision, `--remote` and `workspace clone` compare that set with GitLab, and `workspace archive` packs the selected trees into one ZIP.
 
-The clones sit side by side under `--base-dir`. There is no superproject. Each selected project is sent to `origin/<branch>`, to a tag, or to a full commit named in the file. A dirty work tree, an unfinished rebase, a detached HEAD that is not already the pin, an upstream on some other remote, and local commits that have not been pushed are left untouched.
+[West](https://docs.zephyrproject.org/latest/develop/west/manifest.html) already covers the main model: a manifest, shared and per-project revisions, groups, update, and recorded commits. [gita](https://github.com/nosarthur/gita), [repo](https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md), and [mr](https://myrepos.branchable.com/) cover other multi-repo jobs. West is not a weaker tool for managing a set of repositories. These commands are only already fitted to this checkout:
 
-`mr`, `gita`, and `git submodule foreach` run one command in every copy. They have no shared stop when SSH to GitLab dies. `submodule foreach` also requires a superproject.
+| Task | release-align |
+| --- | --- |
+| Start from a directory of existing clones | `workspace init` discovers repositories and names groups from parent directories. West starts from a manifest; `west init -l` uses one that already exists. |
+| Notice projects GitLab has and the disk does not | `--remote` and `workspace clone` list the saved groups, show what is missing, and clone it. |
+| Stop when the shared server does not answer | One probe budget is shared. After it is spent, the run stops instead of retrying inside every repository. |
+| Select one directory group | `--group mailion/search` is the selection. Enabling one west group does not disable the others. |
+| Stay on the named release branch | Sync checks out that branch and fast-forwards. `west update` leaves `HEAD` detached at the commit. |
+| Hand the selected sources over as one file | `workspace archive` writes one ZIP with the directory layout and a manifest of commits. |
 
-A loop of `git pull` waits out its own timeout in each repository and merges however that repository is configured. Nothing asks whether origin answers before the first fetch.
+A detached `HEAD` does not change the files in a commit, so it matters when you will commit again, not when you only read the tree. West's `forall` and extensions can add the other steps; keeping them here costs maintenance. That practical gap has not been measured on a real Mailion checkout.
 
-`go get` and `go.work` change module requirements. The service directory stays on the commit it was cloned at. The GitLab web UI updates the project on the server and never sees uncommitted files on the machine.
-
-Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Offline commands set `GIT_NO_LAZY_FETCH=1` on the Git processes they start. There is no explicit fetch. Suppression of lazy fetch is best effort and depends on the installed Git: a build that ignores the variable can still download a missing partial-clone object. That behavior was checked with Git 2.51.1, which honors the variable, and the commands also run on Git 2.43.0. A normal sync does not set the variable. Running also needs the installed OpenSSH, or an SSH command of your own in `GIT_SSH_COMMAND` or `GIT_SSH`. The program builds and runs on Linux, macOS, and Windows.
+Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Offline commands set `GIT_NO_LAZY_FETCH=1` on the Git processes they start. Suppression is best effort: a Git build that ignores the variable can still download a missing partial-clone object. That was checked with Git 2.51.1, which honors the variable; the commands also run on Git 2.43.0. A normal sync does not set the variable. Running needs OpenSSH, or your own command in `GIT_SSH_COMMAND` or `GIT_SSH`.
 
 ## Quick start
 
@@ -33,7 +38,7 @@ go build -o release-align .
 
 ## Commands
 
-The program takes no positional arguments. `--workspace` is required for a sync or a status check. An explicit flag wins over the environment variable for the same setting, and that variable is not parsed when the flag is present. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. After the flags have been parsed, a bad value or a bad workspace document exits 2 before any repository is touched. A value the parser itself rejects (`--jobs bad`, an unknown flag) is Cobra's own message: stdout is empty and the status is 2. Help and version stay text as well. When `--output json` is selected, a usage or runtime error of that run is one JSON object on stdout and progress stays on stderr. JSON is not promised before the parser can tell which command is running, and a run does not mix JSON with text.
+The program takes no positional arguments. `--workspace` is required for a sync or a status check. Flag priority is below the flag table. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. After the flags have been parsed, a bad value or a bad workspace document exits 2 before any repository is touched. A value the parser itself rejects (`--jobs bad`, an unknown flag) is Cobra's own message: stdout is empty and the status is 2. Help and version stay text. When `--output json` is selected, a usage or runtime error of that run is one JSON object on stdout and progress stays on stderr. JSON is not promised before the parser can tell which command is running.
 
 ### release-align
 
@@ -65,9 +70,9 @@ release-align --workspace ./mailion.workspace.json --group search --repo storage
 | `--output` | | `text` | | `text` or `json` |
 | `--remote` | | `false` | | After the local operation, compare `gitlab.groups` with the disk and the workspace. Not combined with `--dry-run` |
 
-A duration needs a Go unit on the command line and in the environment: `5s`, `750ms`, `1m`. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
+A duration needs a Go unit: `5s`, `750ms`, `1m`. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
 
-An explicit flag wins over the environment variable, which wins over `timeouts` in the workspace, which wins over the built-in default. `workspace clone` reads `CLONE_TIMEOUT` (`--clone-timeout`, default `15m`). `workspace archive` reads `ARCHIVE_TIMEOUT` (`--archive-timeout`, default `15m` for one repository). A command that does not have the matching flag ignores that variable. `--retry-delay 0` is allowed. A timeout of `0` is not. Suggested commands are quoted for a POSIX shell, or for PowerShell when the program is running on Windows.
+An explicit flag wins over the environment variable, which wins over `timeouts` in the workspace, which wins over the built-in default. When the flag is present, that variable is not parsed. A command that does not define the flag ignores that variable, so `workspace init` reads none of this table and `workspace refresh` reads only `timeouts.local` from the file. `workspace clone` reads `CLONE_TIMEOUT` (`--clone-timeout`, default `15m`). `workspace archive` reads `ARCHIVE_TIMEOUT` (`--archive-timeout`, default `15m` for one repository). `--branch` has no environment variable. `--retry-delay 0` is allowed. A timeout of `0` is not. Suggested commands are quoted for a POSIX shell, or for PowerShell when the program is running on Windows.
 
 ### release-align version
 
@@ -140,7 +145,7 @@ diff -u ./mailion.workspace.json ./workspace.candidate.json
 
 ### release-align workspace refresh
 
-`refresh` compares that file with the clones currently under `--base-dir`. `--base-dir` and `--file` are required. They are not the sync flags and they do not read the sync environment. With no `--add` and no `--add-all`, the command only prints the difference and leaves the file, its modification time, and every Git worktree unchanged.
+`refresh` compares that file with the clones currently under `--base-dir`. `--base-dir` and `--file` are required. With no `--add` and no `--add-all`, the command only prints the difference and leaves the file, its modification time, and every Git worktree unchanged.
 
 ```bash
 ./release-align workspace refresh \
@@ -164,7 +169,7 @@ New entries go after the existing ones, in lexical order, with directory groups 
 
 An unlisted clone is not an error. Another project under the same directory may have been left out on purpose. A missing listed path is a warning in the preview; other valid additions are still allowed, and the missing entry is not deleted. A listed path that exists but is not a usable repository, including a broken `.git`, a missing origin, a symlink, or a permissions error, stops the command and does not write. A hidden or nested root that you put in the file by hand is checked directly, so the directory walk skipping it does not make it look deleted.
 
-Refresh does not fetch, switch, or ask the server whether `default_branch` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready. `status` does that, and it still looks only at the file.
+Refresh does not fetch, switch, or ask the server whether `default_branch` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready.
 
 A repository that was created on the server but never cloned is not in this scan. `status --remote` and `workspace clone` read that list from the GitLab groups saved in the file. `refresh` does not call the API.
 
@@ -182,7 +187,7 @@ The fast-forward then uses that resolved commit. Afterward the worktree is read 
 
 The update itself is a local `git merge --ff-only` from the resolved commit. There is no second network request, no merge commit, no rebase, and no push. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is left in place.
 
-Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not fetch (`freshness` `cached`). They set `GIT_NO_LAZY_FETCH=1` on their Git processes. A Git that honors it will not download a missing partial-clone object to answer them. A Git that ignores the variable may. A missing Git executable or a timeout is still reported by the command that needed Git. A normal sync does not set the variable. The parent process environment is left unchanged. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. `--dry-run --remote` is rejected; use `status --remote` to ask GitLab. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
+Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not fetch (`freshness` `cached`) and set `GIT_NO_LAZY_FETCH=1`, as described above. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. `--dry-run --remote` is rejected; use `status --remote` to ask GitLab. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
 
 `--output json` writes one JSON object to stdout. Progress and logs go to stderr. `expected_count` is the selection, `inventory_count` is the whole file, and `scope` is `workspace` or `selection`. `coverage_complete` means every selected path has a row, not that every clone exists.
 
@@ -212,25 +217,23 @@ release-align workspace clone \
   --all
 ```
 
-`workspace archive` writes one ZIP of the selected trees. Paths inside the archive follow `projects[].path`, for example `mailion/search/pasifae/go.mod`, plus `_release-align/manifest.json` with the resolved commit for each repository. Omit `--repo` and `--group` to pack every repository. The revision is the pin, or `default_branch` when there is no pin. Those names are resolved to commits from local refs before the first `git archive`. A local branch or the current HEAD is not substituted. There is no fetch, clone, or checkout. A missing clone or object stops the command, and the destination file is not created or replaced. `git archive` exports the committed tree, so uncommitted and untracked files stay out. Tracked files stay unless `.gitattributes` marks them `export-ignore`. Submodule contents are not downloaded; gitlinks are listed in the manifest. The archive is not a byte-identical promise and it is not a full build backup. `--archive-timeout` bounds one repository, including the copy into the shared ZIP.
+`workspace archive` writes one ZIP of the selected trees. `--file` is resolved from the current directory. Paths inside the archive follow `projects[].path`, for example `mailion/search/pasifae/go.mod`, plus `_release-align/manifest.json` with the resolved commit for each repository. Each project path must be the worktree root; a subdirectory of another clone is rejected. Omit `--repo` and `--group` to pack every repository. The revision is the pin, or `default_branch` when there is no pin. Those names are resolved to commits from local refs before the first `git archive`. A local branch or the current HEAD is not substituted. There is no fetch, clone, or checkout. A missing clone or object stops the command, and the destination file is not created or replaced. `git archive` exports the committed tree, so uncommitted and untracked files stay out. Tracked files stay unless `.gitattributes` marks them `export-ignore`. Submodule contents are not downloaded; gitlinks are listed in the manifest. The archive is not a byte-identical promise and it is not a full build backup.
 
 `--remote` on `status` or on a sync checks the saved groups after the local operation and prints the difference. It does not clone and it does not change the workspace file. Without `--remote` the report says the inventory was not checked. `ready` counts selected workspace rows. Uncloned projects in the GitLab scope are a separate list, not a failed selection. Archived projects and projects shared in from outside the group are omitted. If the API does not return a complete list, the report says the catalog is unknown and does not claim that nothing is new. After a confirmed network failure or a cancel of the sync, the API is not asked again. If the branches were switched and the inventory request then fails, the message says both: alignment completed, inventory failed, nothing was cloned. The exit status is 1.
 
-`workspace clone` downloads missing checkouts into `<base-dir>/<path_with_namespace>`, reuses a matching checkout, and appends new rows without changing pins or order. `--repo` and `--all` cannot be combined. `--all` is the saved server scope, not the whole GitLab instance and not `--group`. A project with no default branch is skipped by `--all` and rejected by `--repo`. An occupied path or a different origin is left alone. Clones run one after another, on the remote default branch, without a depth filter. `--clone-timeout` defaults to 15m. A later `release-align` aligns the release. If one clone fails, finished checkouts stay on disk and completed new rows are still saved. If the JSON write fails, those checkouts stay and the output includes a recovery command. Ctrl-C does not start that write. A lock on the base directory is taken before the workspace file lock. A held lock is reported as a lock. A missing directory or a permission error keeps that filesystem error.
-
-The workspace lock file is `<file>.lock`, created with `O_EXCL`. Only an existing lock is described as held. Other failures from creating it keep the original error.
+`workspace clone` downloads missing checkouts into `<base-dir>/<path_with_namespace>`, reuses a matching checkout, and appends new rows without changing pins or order. `--repo` and `--all` cannot be combined. `--all` is the saved server scope, not the whole GitLab instance and not `--group`. A project with no default branch is skipped by `--all` and rejected by `--repo`. An occupied path or a different origin is left alone. Clones run one after another, on the remote default branch, without a depth filter. A later `release-align` aligns the release. If one clone fails, finished checkouts stay on disk and completed new rows are still saved. If the JSON write fails, those checkouts stay and the output includes a recovery command. Ctrl-C does not start that write. Clone takes the base-directory lock before the workspace file lock described above.
 
 ## Network and parallelism
 
 With three attempts, a 5s probe, and a 1s pause, preflight is bounded by 17s plus the time taken to stop child processes. That figure is only the preflight budget, not a bound on fetch or checkout. Fetch and checkout wait for a successful preflight.
 
-Network errors and timeouts are retried. A rejected key, a permission failure, a missing repository, and an untrusted TLS certificate fail that one repository. Probe, fetch, and planning still run for the other selected repositories. If any selected repository is blocked, checkout does not start for the rest of the selection. Git is started with `LC_ALL=C`, and the error text is what classifies the failure. An unrecognized error does not start an open-ended retry loop.
+Network errors and timeouts are retried. A rejected key, a permission failure, a missing repository, and an untrusted TLS certificate fail that one repository. Probe, fetch, and planning still run for the other selected repositories. Checkout of the rest does not start when any selected repository is already blocked. Git is started with `LC_ALL=C`, and the error text is what classifies the failure. An unrecognized error does not start an open-ended retry loop.
 
 If the network drops after preflight, a failed fetch checks origin again. Three network failures cancel the repositories still waiting and the Git processes still running. The checks are serialized, so once the outage is confirmed a worker does not run a retry loop of its own. A successful check allows one more fetch. While a fetch is still running, the break can go unnoticed until `--fetch-timeout` expires. There is no background poll of the server.
 
 Commands inside one repository run one after another. Worktrees that share a git directory are serialized too. `--jobs 1` processes repositories strictly in order. On Linux and macOS a timeout kills the Git process group, SSH included. On Windows the same job is done with `taskkill /T /F`, under its own time limit.
 
-Ctrl+C exits with status 130. Repositories already switched stay switched. There is no rollback of the whole run.
+Ctrl+C exits with status 130. Repositories already switched stay switched.
 
 Each log line is text: the local clock (`2026-10-05 14:20:15`), the level, the repository name, and the message. Paths that block an update are listed under that line, one path per line, at most 10. The rest are a single `... and N more` line. `--log-level debug` lists every path and adds fetch and probe detail. Git's own transcript stays quiet. On a terminal the level and the repository name are colored. `NO_COLOR` leaves the text uncolored. Lines from different workers are not interleaved.
 
@@ -238,7 +241,7 @@ A sync creates `<base-dir>/.release-align.lock` and removes it on exit. SIGKILL 
 
 ## Environment
 
-An explicit flag overrides the environment variable of the same setting. When the flag is present, that variable is not parsed, so an invalid environment value does not reject a valid flag. `workspace init` does not read this table. `--branch` has no environment variable.
+Names match the flags above. Priority and which commands read them are next to the flag table.
 
 | Variable | Flag |
 | --- | --- |
@@ -254,7 +257,7 @@ An explicit flag overrides the environment variable of the same setting. When th
 | `ATTEMPTS` | `--attempts` |
 | `RETRY_DELAY` | `--retry-delay` |
 
-Durations need a unit in the environment as well: `5s`, `750ms`, `1m`. The default level is `info`. `LOG_LEVEL` accepts the same names as `--log-level`, in any case.
+The default level is `info`. `LOG_LEVEL` accepts the same names as `--log-level`, in any case.
 
 Git is not asked for a password. Existing credentials and `ssh-agent` are used. If `GIT_SSH_COMMAND` or `GIT_SSH` is set, that value is kept, and the outer timeout still applies. Otherwise OpenSSH is started with `BatchMode=yes`, `ConnectTimeout=5`, one connection attempt, and `StrictHostKeyChecking=accept-new`. A new host key may be written to `known_hosts` on a normal run. Add a passphrase-protected key with `ssh-add` beforehand.
 
@@ -262,13 +265,7 @@ Git is not asked for a password. Existing credentials and `ssh-agent` are used. 
 
 The code lives in `cmd` and in five packages under `internal`: `app` (the workspace inventory and the sync), `gitlab` (the group project list), `gitter` (running Git and applying process timeouts), `retry` (repeating a check), and `logger` (zap, and writes from several workers).
 
-`--attempts 3` allows two retries after the first check. `--attempts 1` makes one call and does not start the retry engine. Inside the engine, zero retries means no limit, so a single attempt deliberately skips the engine. Canceling the parent context stops retries at once. A timeout of one Git command is retried while that parent context is still alive.
-
-```bash
-./release-align --workspace ./mailion.workspace.json -n -j 8 -l debug
-./release-align -v
-./release-align completion bash > release-align-completion.bash
-```
+Inside the retry engine, zero retries means no limit, so `--attempts 1` skips the engine. Canceling the parent context stops retries at once. A timeout of one Git command is retried while that parent context is still alive.
 
 Go 1.27.1 is pinned in `go.mod`, and CI reads the version from there. golangci-lint v2.14.0 is pinned in the Taskfile and in the workflow. Formatting is gofumpt, gci, and golines.
 

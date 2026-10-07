@@ -109,6 +109,8 @@ type archiveJob struct {
 	git *gitter.Client
 	// base is the absolute base directory.
 	base string
+	// destination is the absolute ZIP path. Git receives this path, not the caller's relative name.
+	destination string
 }
 
 const (
@@ -118,6 +120,8 @@ const (
 	archiveManifestDir = "_release-align"
 	// archiveSource is printed with a successful text report.
 	archiveSource = "Source: workspace revisions, locally cached refs. Uncommitted changes are not included."
+	// archiveCopyChunk is the most raw ZIP data copied before the next cancel check.
+	archiveCopyChunk = 32 << 10
 )
 
 // SetTimeoutLocks records durations already chosen by a flag or the environment.
@@ -195,6 +199,11 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 		return nil, err
 	}
 
+	destination, err := filepath.Abs(opts.File)
+	if err != nil {
+		return nil, err
+	}
+
 	selected, err := spec.SelectProjects(opts.Repositories, opts.Groups)
 	if err != nil {
 		return nil, err
@@ -209,10 +218,11 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 	}
 
 	return &archiveJob{
-		ctx:  ctx,
-		opts: opts,
-		spec: spec,
-		base: base,
+		ctx:         ctx,
+		opts:        opts,
+		spec:        spec,
+		base:        base,
+		destination: destination,
 		git: &gitter.Client{
 			LocalTimeout: opts.LocalTimeout,
 			NoLazyFetch:  true,
