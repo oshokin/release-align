@@ -6,6 +6,26 @@ import (
 	"testing"
 )
 
+var dirtyWorktreeKinds = []string{
+	"untracked",
+	"staged",
+	"unstaged",
+	"unpushed",
+	"no-upstream",
+	"detached",
+	"merge",
+	"other-remote",
+	"missing-upstream",
+}
+
+var unsafeTargetKinds = []string{
+	"ahead",
+	"diverged",
+	"no-upstream",
+	"wrong-upstream",
+}
+
+// TestPreferredBranchAndFastForward verifies a fast-forward onto the preferred branch.
 func TestPreferredBranchAndFastForward(t *testing.T) {
 	f := setup(t)
 	want := branch(t, f, "Release-2.3.2")
@@ -39,35 +59,18 @@ func TestPreferredBranchAndFastForward(t *testing.T) {
 	}
 }
 
+// TestDirtyAndUnsafeCurrentRemainUntouched verifies that an unsafe current branch is not switched.
 func TestDirtyAndUnsafeCurrentRemainUntouched(t *testing.T) {
-	kinds := []string{
-		"untracked",
-		"staged",
-		"unstaged",
-		"unpushed",
-		"no-upstream",
-		"detached",
-		"merge",
-		"other-remote",
-		"missing-upstream",
-	}
-
-	for _, kind := range kinds {
+	for _, kind := range dirtyWorktreeKinds {
 		t.Run(kind, func(t *testing.T) {
 			assertDirtyLeftUntouched(t, kind)
 		})
 	}
 }
 
+// TestUnsafeTargetDoesNotSwitch verifies that an unsafe target branch is not checked out.
 func TestUnsafeTargetDoesNotSwitch(t *testing.T) {
-	kinds := []string{
-		"ahead",
-		"diverged",
-		"no-upstream",
-		"wrong-upstream",
-	}
-
-	for _, kind := range kinds {
+	for _, kind := range unsafeTargetKinds {
 		t.Run(kind, func(t *testing.T) {
 			f := setup(t)
 			branch(t, f, "release")
@@ -106,6 +109,7 @@ func TestUnsafeTargetDoesNotSwitch(t *testing.T) {
 	}
 }
 
+// TestCommitBranchSelectionExcludesOriginHEAD verifies that origin/HEAD is not chosen as the branch that contains a commit.
 func TestCommitBranchSelectionExcludesOriginHEAD(t *testing.T) {
 	f := setup(t)
 	f.cfg.Branch = "absent"
@@ -125,6 +129,7 @@ func TestCommitBranchSelectionExcludesOriginHEAD(t *testing.T) {
 	}
 }
 
+// TestTagFallbackAndLocalTagsSurvive verifies tag fallback and that local tags stay in place.
 func TestTagFallbackAndLocalTagsSurvive(t *testing.T) {
 	f := setup(t)
 	f.cfg.Branch = "absent"
@@ -149,6 +154,7 @@ func TestTagFallbackAndLocalTagsSurvive(t *testing.T) {
 	git(t, f.repo, "show-ref", "--verify", "refs/tags/local-only")
 }
 
+// TestFallbackKeepsRenamedLocalBranch verifies that fallback does not rename the current local branch.
 func TestFallbackKeepsRenamedLocalBranch(t *testing.T) {
 	f := setup(t)
 	git(t, f.repo, "branch", "-m", "my-local-name")
@@ -171,6 +177,7 @@ func TestFallbackKeepsRenamedLocalBranch(t *testing.T) {
 	}
 }
 
+// assertDirtyLeftUntouched checks that an unsafe worktree is not switched.
 func assertDirtyLeftUntouched(t *testing.T, kind string) {
 	t.Helper()
 
@@ -206,6 +213,7 @@ func assertDirtyLeftUntouched(t *testing.T, kind string) {
 	}
 }
 
+// makeUnsafeWorktree puts a clone into the requested unsafe state.
 func makeUnsafeWorktree(t *testing.T, f *fixture, kind, head string) string {
 	t.Helper()
 

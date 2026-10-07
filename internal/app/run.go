@@ -56,15 +56,16 @@ func Run(parent context.Context, cfg *Config, manifest Manifest) (*Summary, erro
 		return summary, nil
 	}
 
-	if !cfg.DryRun {
-		unlock, lockErr := lockBase(cfg.BaseDir)
-		if lockErr != nil {
-			return summary, lockErr
-		}
-		defer unlock()
-	} else {
+	if cfg.DryRun {
 		logger.Warn(ctx, "Offline dry-run: using cached refs; remote changes and permissions are not checked")
 	}
+
+	unlock, lockErr := lockUnlessDry(cfg)
+	if lockErr != nil {
+		return summary, lockErr
+	}
+
+	defer unlock()
 
 	repos, err := r.prepare(ctx, paths, summary)
 	if err != nil {
@@ -73,9 +74,10 @@ func Run(parent context.Context, cfg *Config, manifest Manifest) (*Summary, erro
 
 	if !cfg.DryRun {
 		repos, err = r.preflight(ctx, repos, summary)
-		if err != nil {
-			return summary, err
-		}
+	}
+
+	if err != nil {
+		return summary, err
 	}
 
 	r.processAll(ctx, cancel, repos, summary)
@@ -191,4 +193,13 @@ func (r *runner) endpoint(remote string) string {
 	}
 
 	return "local:" + remote
+}
+
+// lockUnlessDry locks the base directory unless this run is a dry run.
+func lockUnlessDry(cfg *Config) (func(), error) {
+	if cfg.DryRun {
+		return func() {}, nil
+	}
+
+	return lockBase(cfg.BaseDir)
 }

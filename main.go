@@ -7,6 +7,7 @@ import (
 	"github.com/oshokin/release-align/cmd"
 )
 
+// main runs the CLI and exits with its status code.
 func main() {
 	os.Exit(cmd.Execute(os.Args[1:], os.Stdout, os.Stderr))
 }

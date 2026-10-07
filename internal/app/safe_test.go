@@ -13,6 +13,7 @@ import (
 	"github.com/oshokin/release-align/internal/logger"
 )
 
+// TestPorcelainPaths verifies rename and path parsing from porcelain status.
 func TestPorcelainPaths(t *testing.T) {
 	t.Parallel()
 
@@ -29,6 +30,7 @@ func TestPorcelainPaths(t *testing.T) {
 	}
 }
 
+// TestLogNotUpdatedSortsByPath verifies that the not-updated list is sorted by path.
 func TestLogNotUpdatedSortsByPath(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +71,7 @@ func TestLogNotUpdatedSortsByPath(t *testing.T) {
 	}
 }
 
+// TestDirtyTreeReasonLimitsPaths verifies that a dirty-tree message keeps only the first paths.
 func TestDirtyTreeReasonLimitsPaths(t *testing.T) {
 	t.Parallel()
 
@@ -95,6 +98,7 @@ func TestDirtyTreeReasonLimitsPaths(t *testing.T) {
 	}
 }
 
+// TestDirtyPathLimitFollowsLevel verifies that the debug log level lists every dirty path.
 func TestDirtyPathLimitFollowsLevel(t *testing.T) {
 	t.Parallel()
 
@@ -107,6 +111,7 @@ func TestDirtyPathLimitFollowsLevel(t *testing.T) {
 	}
 }
 
+// TestIdleCancelIsOnlyACount verifies that an idle cancel only increments the canceled count.
 func TestIdleCancelIsOnlyACount(t *testing.T) {
 	t.Parallel()
 

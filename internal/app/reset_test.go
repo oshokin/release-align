@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// TestResetBranchDiscardsLocalCommits verifies that reset drops local commits on the target branch.
 func TestResetBranchDiscardsLocalCommits(t *testing.T) {
 	f := setup(t)
 	origin := branch(t, f, "release")
@@ -37,6 +38,7 @@ func TestResetBranchDiscardsLocalCommits(t *testing.T) {
 	}
 }
 
+// TestResetBranchDryRunKeepsCommits verifies that a dry run with reset does not drop commits.
 func TestResetBranchDryRunKeepsCommits(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -60,6 +62,7 @@ func TestResetBranchDryRunKeepsCommits(t *testing.T) {
 	}
 }
 
+// TestResetBranchLeavesCommitsOnAnotherBranch verifies that reset does not touch commits on another branch.
 func TestResetBranchLeavesCommitsOnAnotherBranch(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -79,6 +82,7 @@ func TestResetBranchLeavesCommitsOnAnotherBranch(t *testing.T) {
 	}
 }
 
+// TestResetBranchStillSkipsDetachedHead verifies that reset still refuses a detached HEAD.
 func TestResetBranchStillSkipsDetachedHead(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -98,6 +102,7 @@ func TestResetBranchStillSkipsDetachedHead(t *testing.T) {
 	}
 }
 
+// TestResetBranchDiscardsEdits verifies that reset deletes uncommitted edits.
 func TestResetBranchDiscardsEdits(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")

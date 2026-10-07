@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -44,7 +45,10 @@ func (c *Client) Run(ctx context.Context, dir string, timeout time.Duration, arg
 	cmd := exec.CommandContext(
 		ctx,
 		"git",
-		append([]string{configFlag, "credential.interactive=false", configFlag, "submodule.recurse=false"}, args...)...)
+		slices.Concat(
+			[]string{configFlag, "credential.interactive=false", configFlag, "submodule.recurse=false"},
+			args,
+		)...)
 	cmd.Dir = dir
 
 	var env []string
@@ -156,6 +160,7 @@ func (e *CommandError) Unwrap() error {
 	return e.Err
 }
 
+// ExitCode returns the process status from an exec error, or -1.
 func ExitCode(err error) int {
 	if e, ok := errors.AsType[*exec.ExitError](err); ok {
 		return e.ExitCode()
@@ -164,6 +169,7 @@ func ExitCode(err error) int {
 	return -1
 }
 
+// NetworkError reports a failure to reach the remote.
 func NetworkError(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return false

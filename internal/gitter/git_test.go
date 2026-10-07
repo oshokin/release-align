@@ -11,12 +11,15 @@ import (
 	"time"
 )
 
+// statusTextError is a test error whose text is classified as network or local.
 type statusTextError string
 
+// Error returns the stored text.
 func (e statusTextError) Error() string {
 	return string(e)
 }
 
+// TestNetworkClassification verifies which Git errors count as a network failure.
 func TestNetworkClassification(t *testing.T) {
 	networkErrors := []string{
 		"Could not resolve hostname",
@@ -51,6 +54,7 @@ func TestNetworkClassification(t *testing.T) {
 	}
 }
 
+// TestCommandTimeoutAndNoPrompt verifies command timeouts and that Git is not allowed to ask for a password.
 func TestCommandTimeoutAndNoPrompt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix process tree fixture")
@@ -79,6 +83,7 @@ func TestCommandTimeoutAndNoPrompt(t *testing.T) {
 	}
 }
 
+// TestNoShellInterpolation verifies that Git arguments are not passed through a shell.
 func TestNoShellInterpolation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix echo fixture")

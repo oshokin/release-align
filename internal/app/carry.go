@@ -198,11 +198,11 @@ func (r *runner) dropStash(ctx context.Context, repo *repository, sha string) er
 // stashTip reads refs/stash. An empty string means the repository has no stash yet.
 func (r *runner) stashTip(ctx context.Context, repo *repository) (string, error) {
 	sha, err := r.git.Local(ctx, repo.path, "rev-parse", "--verify", "--quiet", "refs/stash")
-	if err != nil {
-		if gitter.ExitCode(err) == 1 {
-			return "", nil
-		}
+	if gitter.ExitCode(err) == 1 {
+		return "", nil
+	}
 
+	if err != nil {
 		return "", err
 	}
 

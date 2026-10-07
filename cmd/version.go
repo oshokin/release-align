@@ -13,10 +13,12 @@ var (
 	BuildTime = "unknown"
 )
 
+// fullVersion formats the version line printed by the version command.
 func fullVersion() string {
 	return fmt.Sprintf("release-align %s (commit %s, built %s)", Version, Commit, BuildTime)
 }
 
+// newVersionCommand builds the version subcommand.
 func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",

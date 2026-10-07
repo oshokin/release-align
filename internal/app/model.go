@@ -78,6 +78,10 @@ type (
 		manifest Manifest
 		// probeRetry retries origin reachability checks.
 		probeRetry *retry.Engine
+		// beforeWorkspaceCheckout runs once after a clean plan and before the first switch.
+		beforeWorkspaceCheckout func()
+		// afterWorkspaceCheckout runs after one switch and before that repository is read back.
+		afterWorkspaceCheckout func(*repository)
 	}
 )
 
@@ -94,6 +98,12 @@ const (
 	statusCanceled = "canceled"
 	// messageRunStopped explains a repository left alone because the run ended.
 	messageRunStopped = "run stopped"
+	// messageDirtyTree is the stable explanation for staged, unstaged, or untracked files.
+	messageDirtyTree = "working tree has staged, unstaged or untracked changes"
+	// messageDetachedHead tells the user to leave an unpinned detached HEAD alone.
+	messageDetachedHead = "detached HEAD; select a tracked branch explicitly"
+	// messagePlanAdmissible means cached refs allow a later fast-forward or detach.
+	messagePlanAdmissible = "fast-forward or detach is admissible"
 	// messageIdleCancel marks a repository that was still queued when the run stopped.
 	messageIdleCancel = "not started"
 )

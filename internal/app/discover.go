@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// discover lists Git repositories under base, down to depth.
 func discover(ctx context.Context, base string, depth int) ([]string, error) {
 	info, err := os.Stat(base)
 	if err != nil {

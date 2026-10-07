@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// TestKeepChangesOverlaysUnstagedEdits verifies that keep carries unstaged edits onto the updated branch.
 func TestKeepChangesOverlaysUnstagedEdits(t *testing.T) {
 	f := setup(t)
 	want := branch(t, f, "release")
@@ -42,6 +43,7 @@ func TestKeepChangesOverlaysUnstagedEdits(t *testing.T) {
 	}
 }
 
+// TestKeepChangesDropsOnlyItsOwnStash verifies that keep drops only the stash it created.
 func TestKeepChangesDropsOnlyItsOwnStash(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -67,6 +69,7 @@ func TestKeepChangesDropsOnlyItsOwnStash(t *testing.T) {
 	}
 }
 
+// TestKeepChangesKeepsStashOnConflict verifies that a conflicting stash is left in place.
 func TestKeepChangesKeepsStashOnConflict(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -98,6 +101,7 @@ func TestKeepChangesKeepsStashOnConflict(t *testing.T) {
 	}
 }
 
+// TestKeepChangesRestoresWorktreeWhenSwitchRefuses verifies that a refused switch restores the worktree.
 func TestKeepChangesRestoresWorktreeWhenSwitchRefuses(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -138,6 +142,7 @@ func TestKeepChangesRestoresWorktreeWhenSwitchRefuses(t *testing.T) {
 	}
 }
 
+// TestKeepChangesDoesNotCarryUnpushedCommits verifies that keep does not move unpushed commits.
 func TestKeepChangesDoesNotCarryUnpushedCommits(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -157,6 +162,7 @@ func TestKeepChangesDoesNotCarryUnpushedCommits(t *testing.T) {
 	}
 }
 
+// TestKeepChangesDryRunDoesNotStash verifies that a dry run does not create a stash.
 func TestKeepChangesDryRunDoesNotStash(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -178,6 +184,7 @@ func TestKeepChangesDryRunDoesNotStash(t *testing.T) {
 	}
 }
 
+// TestKeepChangesDetachesWithUnstagedEdits verifies that keep can detach at a tag and still overlay edits.
 func TestKeepChangesDetachesWithUnstagedEdits(t *testing.T) {
 	f := setup(t)
 	f.cfg.Branch = "absent"
@@ -204,6 +211,7 @@ func TestKeepChangesDetachesWithUnstagedEdits(t *testing.T) {
 	}
 }
 
+// readFile returns the contents of a test file.
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 

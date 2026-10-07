@@ -4,6 +4,7 @@
 # IDE and local notes.
 /.idea
 /.vscode
+/tmp/
 
 # Build and dependencies.
 /bin/

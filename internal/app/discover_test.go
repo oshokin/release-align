@@ -10,6 +10,7 @@ import (
 	"github.com/oshokin/release-align/internal/logger"
 )
 
+// TestParallelRepositories verifies that several repositories are updated together.
 func TestParallelRepositories(t *testing.T) {
 	f := setup(t)
 	f.cfg.Jobs = 8
@@ -28,6 +29,7 @@ func TestParallelRepositories(t *testing.T) {
 	}
 }
 
+// TestDiscoveryDepthAndWorktree verifies search depth and that a linked worktree is not a second repository.
 func TestDiscoveryDepthAndWorktree(t *testing.T) {
 	f := setup(t)
 	other := filepath.Join(f.base, "group", "worktree")
@@ -53,6 +55,7 @@ func TestDiscoveryDepthAndWorktree(t *testing.T) {
 	}
 }
 
+// TestBaseLock verifies that a second run waits on the base-directory lock.
 func TestBaseLock(t *testing.T) {
 	f := setup(t)
 
@@ -68,6 +71,7 @@ func TestBaseLock(t *testing.T) {
 	}
 }
 
+// TestCanceledContext verifies that a canceled context stops discovery.
 func TestCanceledContext(t *testing.T) {
 	f := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())

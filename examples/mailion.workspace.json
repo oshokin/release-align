@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "release": "Mailion 26.3.0",
+  "default_branch": "Release-26.3.0",
+  "projects": [
+    {
+      "path": "search/pasifae",
+      "groups": [
+        "search"
+      ]
+    },
+    {
+      "path": "search/mailbek",
+      "groups": [
+        "search"
+      ]
+    },
+    {
+      "path": "search/dirbek",
+      "groups": [
+        "search"
+      ]
+    },
+    {
+      "path": "storage/dispersed-object-store",
+      "groups": [
+        "storage"
+      ],
+      "revision": {
+        "tag": "v4.499.6"
+      }
+    }
+  ]
+}

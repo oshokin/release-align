@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// TestDryRunDoesNotFetchOrWrite verifies that a dry run neither fetches nor writes.
 func TestDryRunDoesNotFetchOrWrite(t *testing.T) {
 	f := setup(t)
 	branch(t, f, "release")
@@ -42,6 +43,7 @@ func TestDryRunDoesNotFetchOrWrite(t *testing.T) {
 	}
 }
 
+// TestConflictingTagFailsWithoutMovingBranch verifies that a conflicting tag fails and leaves the branch in place.
 func TestConflictingTagFailsWithoutMovingBranch(t *testing.T) {
 	f := setup(t)
 	git(t, f.repo, "tag", "v1")
@@ -61,6 +63,7 @@ func TestConflictingTagFailsWithoutMovingBranch(t *testing.T) {
 	}
 }
 
+// TestIgnoredFilesAreNotOverwritten verifies that checkout does not replace ignored files.
 func TestIgnoredFilesAreNotOverwritten(t *testing.T) {
 	f := setup(t)
 	write(t, filepath.Join(f.repo, ".git", "info", "exclude"), "release-file\n")

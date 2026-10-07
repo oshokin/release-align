@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestLoadDefaultsOverrideAndLookup verifies built-in versions, file overrides, and lookup by path or name.
 func TestLoadDefaultsOverrideAndLookup(t *testing.T) {
 	table, e := LoadManifest("")
 	if e != nil || len(table) != 43 || table["hydra"].Commit != "8284453" {
@@ -36,6 +37,7 @@ func TestLoadDefaultsOverrideAndLookup(t *testing.T) {
 	}
 }
 
+// TestRejectInvalidVersions verifies that a broken versions file is rejected.
 func TestRejectInvalidVersions(t *testing.T) {
 	inputs := []string{
 		`{"s":"v1:--help"}`,

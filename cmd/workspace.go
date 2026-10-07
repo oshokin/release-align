@@ -1,0 +1,157 @@
+package cmd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"github.com/oshokin/release-align/internal/app"
+	"github.com/oshokin/release-align/internal/logger"
+)
+
+// newStatusCommand builds the offline workspace status subcommand.
+func newStatusCommand(cfg *app.Config, envErr error) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "status",
+		Short: "Check a workspace locally without fetching or switching",
+		Long:  "status reads cached refs and worktrees. It does not contact a remote. Workspace mode uses exact targets and fails when selected projects are not ready.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.NoArgs(cmd, args); err != nil {
+				return &commandError{code: exitUsage, cause: err}
+			}
+
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if envErr != nil {
+				return &commandError{code: exitUsage, cause: envErr}
+			}
+
+			return runWorkspaceCommand(cmd, cfg, app.ModeStatus)
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return &commandError{code: exitUsage, cause: err}
+	})
+	bindFlags(command, cfg)
+
+	return command
+}
+
+// runWorkspaceCommand loads the inventory and runs sync or status.
+func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error {
+	if err := cfg.Validate(); err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	if err := cfg.ValidateWorkspace(
+		mode,
+		cmd.Flags().Changed("depth"),
+		cmd.Flags().Changed("versions-file"),
+	); err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	spec, err := app.LoadWorkspace(cfg.WorkspaceFile)
+	if err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	if !cmd.Flags().Changed("branch") {
+		return executeWorkspace(cmd, cfg, spec, mode)
+	}
+
+	spec, err = spec.WithDefaultBranch(cfg.Branch)
+	if err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	return executeWorkspace(cmd, cfg, spec, mode)
+}
+
+// usageCommand returns a usage error and writes a JSON envelope when requested.
+func usageCommand(cmd *cobra.Command, cfg *app.Config, mode string, err error) error {
+	if cfg == nil || !cfg.JSON() {
+		return &commandError{code: exitUsage, cause: err}
+	}
+
+	report := &app.WorkspaceReport{
+		SchemaVersion: 1,
+		Mode:          mode,
+		Freshness:     "cached",
+		Errors:        []string{err.Error()},
+		Rows:          []*app.WorkspaceRow{},
+	}
+
+	if cfg.DryRun && mode == app.ModeSync {
+		report.DryRun = true
+		report.Mode = app.ModePlan
+	}
+
+	writeErr := app.WriteWorkspaceReport(cmd.OutOrStdout(), report)
+	if writeErr != nil {
+		return &commandError{code: exitFailed, cause: writeErr}
+	}
+
+	return &commandError{code: exitUsage, cause: err}
+}
+
+// executeWorkspace runs the workspace and writes the report.
+func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSpec, mode string) error {
+	logOut := cmd.OutOrStdout()
+	if cfg.JSON() {
+		logOut = cmd.ErrOrStderr()
+	}
+
+	level, _ := logger.ParseLogLevel(cfg.LogLevel)
+	log := logger.NewWithWriter(level, logOut)
+
+	defer func() {
+		syncErr := log.Sync()
+		if syncErr != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), syncErr)
+		}
+	}()
+
+	ctx := logger.ToContext(cmd.Context(), log)
+	report, runErr := app.RunWorkspace(ctx, cfg, spec, mode)
+
+	writeErr := error(nil)
+	if cfg.JSON() {
+		writeErr = app.WriteWorkspaceReport(cmd.OutOrStdout(), report)
+	}
+
+	if writeErr != nil {
+		return &commandError{code: exitFailed, cause: writeErr}
+	}
+
+	app.LogWorkspaceReport(ctx, report, !cfg.JSON())
+
+	return mapWorkspaceError(runErr)
+}
+
+// mapWorkspaceError maps a workspace failure onto a command exit error.
+func mapWorkspaceError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+
+	code := app.ExitCodeForWorkspace(err)
+	if code == exitNotReady {
+		return &commandError{code: exitNotReady, cause: err}
+	}
+
+	if code == exitUsage {
+		return &commandError{code: exitUsage, cause: err}
+	}
+
+	return &commandError{code: exitFailed, cause: err}
+}

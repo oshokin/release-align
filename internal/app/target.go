@@ -35,15 +35,18 @@ func (r *runner) chooseTarget(ctx context.Context, repo *repository) (*target, e
 		}, nil
 	}
 
-	if v, ok := r.manifest.Lookup(repo.relative, repo.name); ok {
-		picked, pickErr := r.targetFromRelease(ctx, repo, v)
-		if pickErr != nil && !errors.Is(pickErr, errTargetNotFound) {
-			return nil, pickErr
-		}
+	v, ok := r.manifest.Lookup(repo.relative, repo.name)
+	if !ok {
+		return r.currentUpstream(ctx, repo)
+	}
 
-		if picked != nil {
-			return picked, nil
-		}
+	picked, pickErr := r.targetFromRelease(ctx, repo, v)
+	if pickErr != nil && !errors.Is(pickErr, errTargetNotFound) {
+		return nil, pickErr
+	}
+
+	if picked != nil {
+		return picked, nil
 	}
 
 	return r.currentUpstream(ctx, repo)
@@ -57,15 +60,17 @@ func (r *runner) targetFromRelease(ctx context.Context, repo *repository, v *Rel
 		return nil, err
 	}
 
+	picked, pickErr := (*target)(nil), error(nil)
 	if err == nil {
-		picked, pickErr := r.originBranchContaining(ctx, repo, commit, v.Commit)
-		if pickErr != nil && !errors.Is(pickErr, errTargetNotFound) {
-			return nil, pickErr
-		}
+		picked, pickErr = r.originBranchContaining(ctx, repo, commit, v.Commit)
+	}
 
-		if picked != nil {
-			return picked, nil
-		}
+	if pickErr != nil && !errors.Is(pickErr, errTargetNotFound) {
+		return nil, pickErr
+	}
+
+	if picked != nil {
+		return picked, nil
 	}
 
 	exists, err := r.refExists(ctx, repo, "refs/tags/"+v.Tag)

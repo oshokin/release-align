@@ -31,6 +31,8 @@ const (
 	exitFailed = 1
 	// exitUsage is the shell status for invalid arguments, flags, or configuration.
 	exitUsage = 2
+	// exitNotReady means the selected workspace does not match the requested revisions.
+	exitNotReady = 3
 	// exitInterrupted is the shell status for SIGINT: 128 plus the signal number.
 	exitInterrupted = 128 + int(syscall.SIGINT)
 )
@@ -43,7 +45,7 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "release-align",
 		Short:         "Safely switch and fast-forward a directory of Git repositories",
-		Long:          "Priority: release branch > branch containing version commit > version tag > current branch.",
+		Long:          "Without --workspace, priority is the release branch, a branch containing the version commit, the version tag, then the current branch. With --workspace, workspace mode uses exact targets and fails when selected projects are not ready.",
 		Version:       fullVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -67,10 +69,12 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 
 	bindFlags(root, cfg)
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newStatusCommand(cfg, envErr))
 
 	return root
 }
 
+// Execute runs the root command and maps its error to a process exit code.
 func Execute(args []string, out, errOut io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -84,11 +88,7 @@ func Execute(args []string, out, errOut io.Writer) int {
 	}
 
 	if ctx.Err() != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			_, _ = fmt.Fprintln(errOut, err)
-		}
-
-		return exitInterrupted
+		return interruptedExit(err, errOut)
 	}
 
 	_, _ = fmt.Fprintln(errOut, err)
@@ -100,10 +100,23 @@ func Execute(args []string, out, errOut io.Writer) int {
 	return exitUsage
 }
 
+// interruptedExit prints a non-cancel error and returns the interrupt exit code.
+func interruptedExit(err error, errOut io.Writer) int {
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		_, _ = fmt.Fprintln(errOut, err)
+	}
+
+	return exitInterrupted
+}
+
 // runCommand loads the version table, runs the update, and maps failures to exit codes.
 func runCommand(cmd *cobra.Command, cfg *app.Config, envErr error) error {
 	if envErr != nil {
 		return &commandError{code: exitUsage, cause: envErr}
+	}
+
+	if cfg.WorkspaceFile != "" || len(cfg.Repositories) > 0 || len(cfg.Groups) > 0 || cfg.JSON() {
+		return runWorkspaceCommand(cmd, cfg, app.ModeSync)
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -174,6 +187,10 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 		"what to do with local commits and edits: skip, keep, or reset",
 	)
 	flags.StringVarP(&cfg.LogLevel, "log-level", "l", cfg.LogLevel, "log level: debug, info, warn, error (any case)")
+	flags.StringVar(&cfg.WorkspaceFile, "workspace", "", "Explicit workspace JSON; exact targets, no fallback")
+	flags.StringArrayVar(&cfg.Repositories, "repo", nil, "Select a workspace project by its relative path; repeatable")
+	flags.StringArrayVar(&cfg.Groups, "group", nil, "Select a workspace group; repeatable")
+	flags.StringVar(&cfg.Output, "output", cfg.Output, "Output format: text or json")
 	flags.DurationVar(&cfg.ProbeTimeout, "probe-timeout", cfg.ProbeTimeout, "timeout per git ls-remote probe")
 	flags.DurationVar(&cfg.RetryDelay, "retry-delay", cfg.RetryDelay, "delay between failed network probes")
 	flags.DurationVar(&cfg.FetchTimeout, "fetch-timeout", cfg.FetchTimeout, "timeout per fetch")

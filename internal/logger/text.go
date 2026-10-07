@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"time"
 
 	"go.uber.org/zap/zapcore"
@@ -28,11 +29,8 @@ func (c *textCore) Enabled(level zapcore.Level) bool {
 
 // With returns a core that keeps fields on later lines.
 func (c *textCore) With(fields []zapcore.Field) zapcore.Core {
-	next := make([]zapcore.Field, 0, len(c.fields)+len(fields))
-	next = append(next, c.fields...)
-	next = append(next, fields...)
-	copied := *c
-	copied.fields = next
+	copied := c.clone()
+	copied.fields = append(copied.fields, fields...)
 
 	return &copied
 }
@@ -52,9 +50,7 @@ func (c *textCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.C
 //
 //nolint:gocritic // hugeParam: zapcore.Core.Write requires Entry by value.
 func (c *textCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
-	all := make([]zapcore.Field, 0, len(c.fields)+len(fields))
-	all = append(all, c.fields...)
-	all = append(all, fields...)
+	all := slices.Concat(c.fields, fields)
 	_, err := c.out.Write(c.formatLine(ent.Time, ent.Level, ent.Message, all))
 
 	return err
@@ -63,6 +59,16 @@ func (c *textCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 // Sync does not fsync the destination.
 func (c *textCore) Sync() error {
 	return nil
+}
+
+// clone copies the core and its fields. The writer and the level stay the same sink.
+func (c *textCore) clone() textCore {
+	return textCore{
+		level:  c.level,
+		out:    c.out,
+		color:  c.color,
+		fields: slices.Clone(c.fields),
+	}
 }
 
 // newTextCore builds a locked text core.

@@ -1,4 +1,4 @@
-# GoLangCI-Lint configuration for the zvuk-grabber project.
+# GoLangCI-Lint configuration for the release-align project.
 # This file configures static analysis tools to maintain high code quality and consistency.
 # The configuration enforces strict standards while being practical for development workflow.
 
@@ -26,7 +26,7 @@ linters:
   disable: # Disable specific linters that are too strict or not applicable.
     - containedctx # Allow context.Context in structs when needed for design.
     - contextcheck # Skip overly strict context usage checks.
-    - depguard # Handled separately in settings section below.
+    - depguard # Disabled: its previous deny rules were unused while the linter was off.
     - dupl # Allow some code duplication for clarity.
     - exhaustive # Don't require exhaustive enum handling in all switches.
     - exhaustruct # Don't require all struct fields to be initialized.
@@ -69,47 +69,6 @@ linters:
       # If true, `init` func can be anywhere in file (does not have to be declared before all other functions).
       # Default: true (disabled)
       disable-init-func-first-check: false
-
-    # Dependency guard rules to enforce proper package usage patterns.
-    depguard:
-      rules:
-        # Prevent usage of deprecated or problematic packages across all files.
-        "deprecated":
-          files:
-            - "$all" # Apply to all files in the project.
-          deny:
-            - pkg: github.com/golang/protobuf
-              desc: Use google.golang.org/protobuf instead, see https://developers.google.com/protocol-buffers/docs/reference/go/faq#modules
-            - pkg: github.com/satori/go.uuid
-              desc: Use the standard library uuid package instead, satori's package is not maintained
-            - pkg: github.com/gofrs/uuid$
-              desc: Use the standard library uuid package instead
-            - pkg: github.com/google/uuid
-              desc: Use the standard library uuid package instead
-
-        # Enforce modern standard library usage in non-test files.
-        "non-test files":
-          files:
-            - "!$test" # Apply to all non-test files.
-          deny:
-            - pkg: math/rand$
-              desc: Use math/rand/v2 instead, see https://go.dev/blog/randv2
-
-        # Enforce structured logging usage outside of main entry points.
-        "non-main files":
-          files:
-            - "!**/main.go" # Apply to all files except main.go.
-          deny:
-            - pkg: log$
-              desc: Use internal/logger helpers instead of log
-
-        # Restrict direct zap usage to the logger package for centralized logging.
-        "no-zap-outside-logger":
-          files:
-            - "!internal/logger/**" # Apply to all files except logger package.
-          deny:
-            - pkg: go.uber.org/zap$
-              desc: Use internal/logger helpers; direct zap usage is restricted to internal/logger
 
     # Check for problematic embedded struct field patterns.
     embeddedstructfieldcheck:

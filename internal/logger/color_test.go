@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// TestTextLogColorsLevelAndListsFiles verifies colored levels and a file list in the text log.
 func TestTextLogColorsLevelAndListsFiles(t *testing.T) {
 	t.Parallel()
 
@@ -39,6 +40,7 @@ func TestTextLogColorsLevelAndListsFiles(t *testing.T) {
 	}
 }
 
+// TestSyncDoesNotFsyncStdout verifies that Sync does not fsync stdout.
 func TestSyncDoesNotFsyncStdout(t *testing.T) {
 	t.Parallel()
 
@@ -48,6 +50,7 @@ func TestSyncDoesNotFsyncStdout(t *testing.T) {
 	}
 }
 
+// TestColorFollowsNO_COLOR verifies that NO_COLOR turns log color off.
 func TestColorFollowsNO_COLOR(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +74,7 @@ func TestColorFollowsNO_COLOR(t *testing.T) {
 	}
 }
 
+// stripANSI removes color codes from a log line.
 func stripANSI(s string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
 }

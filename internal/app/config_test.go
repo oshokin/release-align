@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// TestLegacyEnvironment verifies the original shell-script environment variables.
 func TestLegacyEnvironment(t *testing.T) {
 	cfg := DefaultConfig()
 	env := map[string]string{
@@ -39,6 +40,7 @@ func TestLegacyEnvironment(t *testing.T) {
 	}
 }
 
+// TestValidation verifies numeric limits, the home directory, and rejected flag combinations.
 func TestValidation(t *testing.T) {
 	for _, mutate := range []func(*Config){
 		func(c *Config) {

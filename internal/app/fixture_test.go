@@ -28,6 +28,7 @@ type fixture struct {
 	cfg *Config
 }
 
+// git runs one Git command in a test repository and returns stdout.
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 
@@ -42,6 +43,7 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(b))
 }
 
+// write creates a file in a test repository.
 func write(t *testing.T, path, value string) {
 	t.Helper()
 
@@ -50,6 +52,7 @@ func write(t *testing.T, path, value string) {
 	}
 }
 
+// setup builds a bare remote and a clone for one test.
 func setup(t *testing.T) *fixture {
 	t.Helper()
 
@@ -108,6 +111,7 @@ func setup(t *testing.T) *fixture {
 	return f
 }
 
+// run executes the legacy updater against a fixture.
 func run(t *testing.T, f *fixture, table Manifest) (*Summary, string, error) {
 	t.Helper()
 
@@ -118,6 +122,7 @@ func run(t *testing.T, f *fixture, table Manifest) (*Summary, string, error) {
 	return s, b.String(), e
 }
 
+// branch creates and pushes a branch on the fixture remote.
 func branch(t *testing.T, f *fixture, name string) string {
 	t.Helper()
 	git(t, f.seed, "switch", "-c", name)
@@ -129,6 +134,7 @@ func branch(t *testing.T, f *fixture, name string) string {
 	return git(t, f.seed, "rev-parse", "HEAD")
 }
 
+// sshScript installs a fake SSH client that records or fails fetches.
 func sshScript(t *testing.T, body string) string {
 	t.Helper()
 

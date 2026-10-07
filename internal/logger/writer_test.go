@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// TestWriterSerializesConcurrentRepositoryLogs verifies that concurrent repository logs stay intact.
 func TestWriterSerializesConcurrentRepositoryLogs(t *testing.T) {
 	t.Parallel()
 

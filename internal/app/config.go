@@ -1,14 +1,11 @@
 package app
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/oshokin/release-align/internal/logger"
 )
 
 // Config is immutable after CLI parsing. Durations accept Go units or legacy seconds.
@@ -39,6 +36,20 @@ type Config struct {
 	FetchTimeout time.Duration
 	// LocalTimeout limits git commands that do not talk to a remote.
 	LocalTimeout time.Duration
+	// WorkspaceFile is an explicit project inventory. Empty keeps legacy discovery.
+	WorkspaceFile string
+	// Repositories selects workspace paths. Empty selects every project, unless Groups is set.
+	Repositories []string
+	// Groups selects workspace groups. Combined with Repositories as a union.
+	Groups []string
+	// Output is text or json.
+	Output string
+	// beforeCheckout runs once after a clean plan and before the first switch.
+	// It is nil outside tests.
+	beforeCheckout func()
+	// afterCheckout runs after one switch and before that repository is read back.
+	// It is nil outside tests.
+	afterCheckout func(string)
 }
 
 const (
@@ -52,117 +63,9 @@ const (
 	gitNoOverwriteIgnore = "--no-overwrite-ignore"
 )
 
-// ApplyEnv retains the useful settings of the original shell script.
-func (c *Config) ApplyEnv(getenv func(string) string) error {
-	for key, dst := range map[string]*string{"BASE_DIR": &c.BaseDir, "RELEASE_BRANCH": &c.Branch, "VERSIONS_FILE": &c.VersionsFile} {
-		if s := getenv(key); s != "" {
-			*dst = s
-		}
-	}
-
-	for key, dst := range map[string]*int{"MAX_DEPTH": &c.Depth, "JOBS": &c.Jobs, "ATTEMPTS": &c.Attempts} {
-		s := getenv(key)
-		if s == "" {
-			continue
-		}
-
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return fmt.Errorf("%s: %w", key, err)
-		}
-
-		*dst = n
-	}
-
-	if s := getenv("LOG_LEVEL"); s != "" {
-		c.LogLevel = s
-	}
-
-	if s := getenv("LOCAL"); s != "" {
-		c.Local = s
-	}
-
-	for key, dst := range map[string]*bool{"DRY_RUN": &c.DryRun} {
-		s := getenv(key)
-		if s == "" {
-			continue
-		}
-
-		b, err := strconv.ParseBool(s)
-		if err != nil {
-			return fmt.Errorf("%s: %w", key, err)
-		}
-
-		*dst = b
-	}
-
-	for key, dst := range map[string]*time.Duration{"FETCH_TIMEOUT": &c.FetchTimeout, "LSREMOTE_TIMEOUT": &c.ProbeTimeout, "CHECKOUT_TIMEOUT": &c.LocalTimeout, "RETRY_DELAY": &c.RetryDelay} {
-		s := getenv(key)
-		if s == "" {
-			continue
-		}
-
-		d, err := c.ParseDuration(s)
-		if err != nil {
-			return fmt.Errorf("%s: %w", key, err)
-		}
-
-		*dst = d
-	}
-
-	return nil
-}
-
-// Validate checks numeric limits and expands a leading ~ in the base directory.
-func (c *Config) Validate() error {
-	if c.BaseDir == "" {
-		return errBaseDirEmpty
-	}
-
-	if c.BaseDir == "~" || strings.HasPrefix(c.BaseDir, "~/") {
-		if err := c.expandHome(); err != nil {
-			return err
-		}
-	}
-
-	p, err := filepath.Abs(c.BaseDir)
-	if err != nil {
-		return err
-	}
-
-	c.BaseDir = p
-	if c.Depth < 1 || c.Depth > 32 {
-		return errDepthRange
-	}
-
-	if c.Jobs < 1 || c.Jobs > 64 {
-		return errJobsRange
-	}
-
-	if c.Attempts < 1 || c.Attempts > 10 {
-		return errAttemptsRange
-	}
-
-	if c.ProbeTimeout <= 0 || c.FetchTimeout <= 0 || c.LocalTimeout <= 0 || c.RetryDelay < 0 {
-		return errTimeoutRange
-	}
-
-	if c.Branch == "" || strings.HasPrefix(c.Branch, "-") {
-		return errInvalidBranch
-	}
-
-	if _, ok := logger.ParseLogLevel(c.LogLevel); !ok {
-		return fmt.Errorf("%s: %w", c.LogLevel, errInvalidLogLevel)
-	}
-
-	switch strings.ToLower(strings.TrimSpace(c.Local)) {
-	case localSkip, localKeep, localReset:
-		c.Local = strings.ToLower(strings.TrimSpace(c.Local))
-	default:
-		return fmt.Errorf("%s: %w", c.Local, errInvalidLocal)
-	}
-
-	return nil
+// JSON reports whether stdout must contain only the workspace document.
+func (c *Config) JSON() bool {
+	return c != nil && c.Output == outputJSON
 }
 
 // ParseDuration accepts a Go duration or a bare number of seconds.
@@ -174,23 +77,7 @@ func (c *Config) ParseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-// expandHome replaces a leading ~ with the current user's home directory.
-func (c *Config) expandHome() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	if c.BaseDir == "~" {
-		c.BaseDir = home
-		return nil
-	}
-
-	c.BaseDir = filepath.Join(home, strings.TrimPrefix(c.BaseDir, "~/"))
-
-	return nil
-}
-
+// DefaultConfig returns the built-in paths, timeouts, and local policy.
 func DefaultConfig() *Config {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -214,5 +101,33 @@ func DefaultConfig() *Config {
 		RetryDelay:   time.Second,
 		FetchTimeout: 60 * time.Second,
 		LocalTimeout: 40 * time.Second,
+		Output:       outputText,
 	}
+}
+
+// expandHomeWhenNeeded expands a leading ~ in the base directory.
+func (c *Config) expandHomeWhenNeeded() error {
+	if c.BaseDir != "~" && !strings.HasPrefix(c.BaseDir, "~/") {
+		return nil
+	}
+
+	return c.expandHome()
+}
+
+// expandHome replaces a leading ~ with the current user's home directory.
+func (c *Config) expandHome() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	if c.BaseDir == "~" {
+		c.BaseDir = home
+
+		return nil
+	}
+
+	c.BaseDir = filepath.Join(home, strings.TrimPrefix(c.BaseDir, "~/"))
+
+	return nil
 }

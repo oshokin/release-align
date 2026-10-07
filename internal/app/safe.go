@@ -36,7 +36,7 @@ func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, err
 
 	branch, err := r.git.Local(ctx, repo.path, "symbolic-ref", "--quiet", "--short", "HEAD")
 	if gitter.ExitCode(err) == 1 {
-		return "detached HEAD; select a tracked branch explicitly", nil
+		return messageDetachedHead, nil
 	}
 
 	if err != nil {
@@ -90,15 +90,7 @@ func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, err
 
 // unfinishedOperation reports a merge, rebase, cherry-pick, revert, or bisect still in progress.
 func (r *runner) unfinishedOperation(ctx context.Context, repo *repository) (string, error) {
-	names := []string{
-		"MERGE_HEAD",
-		"CHERRY_PICK_HEAD",
-		"REVERT_HEAD",
-		"BISECT_LOG",
-		"rebase-merge",
-		"rebase-apply",
-		"sequencer",
-	}
+	names := gitOperationNames()
 
 	for _, name := range names {
 		path, err := r.git.Local(ctx, repo.path, "rev-parse", "--git-path", name)
@@ -154,11 +146,9 @@ func (r *runner) dirtyPathLimit(ctx context.Context) int {
 // dirtyTreeReason names the paths that block an update.
 // A positive limit keeps the first paths and appends a count of the rest. Zero lists every path.
 func (r *runner) dirtyTreeReason(status string, limit int) string {
-	const reason = "working tree has staged, unstaged or untracked changes"
-
 	paths := r.porcelainPaths(status)
 	if len(paths) == 0 {
-		return reason
+		return messageDirtyTree
 	}
 
 	extra := 0
@@ -169,7 +159,7 @@ func (r *runner) dirtyTreeReason(status string, limit int) string {
 
 	var b strings.Builder
 
-	b.WriteString(reason)
+	b.WriteString(messageDirtyTree)
 
 	for _, path := range paths {
 		b.WriteString("\n  ")
@@ -200,11 +190,15 @@ func (r *runner) porcelainPaths(status string) []string {
 		code := entry[:2]
 		path := entry[3:]
 
-		if code[0] == 'R' || code[0] == 'C' || code[1] == 'R' || code[1] == 'C' {
-			if i+1 < len(parts) && parts[i+1] != "" {
-				i++
-				path = parts[i] + " -> " + path
-			}
+		next := ""
+		if i+1 < len(parts) {
+			next = parts[i+1]
+		}
+
+		renamed := code[0] == 'R' || code[0] == 'C' || code[1] == 'R' || code[1] == 'C'
+		if renamed && next != "" {
+			i++
+			path = next + " -> " + path
 		}
 
 		paths = append(paths, path)

@@ -98,6 +98,39 @@ release-align completion powershell
 
 `--no-descriptions` leaves flag descriptions out of the script. Bash needs the `bash-completion` package. The current bash session can load the script with `source <(release-align completion bash)`.
 
+## Workspace mode
+
+`--workspace` is a strict inventory. The program prepares only the listed clones and does not treat a finished walk as proof that they match the release. Without `--workspace`, discovery, the version table, fallback, and exit status stay as they were. `--repo` and `--group` require a workspace file.
+
+```bash
+release-align --base-dir "$HOME/src/gitlab.stageoffice.ru" \
+  --workspace ./examples/mailion.workspace.json --jobs 4
+
+release-align --workspace ./examples/mailion.workspace.json \
+  --group search --repo storage/dispersed-object-store
+
+release-align status --base-dir "$HOME/src/gitlab.stageoffice.ru" \
+  --workspace ./examples/mailion.workspace.json --group search --output json
+```
+
+Workspace mode uses exact targets and fails when selected projects are not ready. It does not load `defaults.json`. `--versions-file` and an explicit `--depth` are errors. `MAX_DEPTH` does not change this mode. `--branch` replaces `default_branch` only when that flag is present on the command line. `RELEASE_BRANCH` and the legacy default `master` do not. A project revision is one of `branch`, `tag`, or `commit`; if it is omitted, the file's `default_branch` is used. A commit must be a full lowercase SHA-1 or SHA-256. The branch resolves to `origin/<branch>`, the tag to its peeled commit, and the commit to that object. Another branch, another tag, and the current upstream are not substitutes.
+
+This mode accepts only `--local skip`. A dirty tree, an unfinished merge or rebase, an unpushed branch, or a detached HEAD that is not already the pinned commit is reported and left untouched. `keep` and `reset` remain available without `--workspace`.
+
+Sync checks origin with the same preflight as the legacy command (`--attempts 3` is three tries total), fetches the selected clones, resolves every target, and switches nothing if any selected project is already blocked. The fast-forward then uses that resolved commit. Afterward the worktree is read again. `ready` comes from that read. Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not contact the network (`freshness` `cached`). A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false.
+
+`--output json` writes one JSON object to stdout. Progress and logs go to stderr. `expected_count` is the selection, `inventory_count` is the whole file, and `scope` is `workspace` or `selection`. `coverage_complete` means every selected path has a row, not that every clone exists.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Every selected project matches, or a dry-run plan has no blocker |
+| 1 | Git, network, access, or I/O failure, including a JSON write error |
+| 2 | Flags or the workspace document were rejected before fetch |
+| 3 | The selection is not ready |
+| 130 | Ctrl+C |
+
+`status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created. Nothing is pushed, tagged, or built. The 17 second figure below is only the preflight budget, not a bound on fetch or checkout.
+
 ## What happens to a repository
 
 1. A local check: the work tree is clean, no merge, rebase, cherry-pick, revert, or bisect is in progress, HEAD is on a branch, that branch has an upstream on origin, and the branch has no commits that origin does not already have.

@@ -48,8 +48,11 @@ func (c *coreWithLevel) With(fields []zapcore.Field) zapcore.Core {
 // WithLevel is an option that creates a logger with the specified logging level based on an existing logger.
 // It returns a zap.Option that wraps the existing core in a coreWithLevel with the specified level.
 func WithLevel(lvl zapcore.Level) zap.Option {
-	return zap.WrapCore(
-		func(core zapcore.Core) zapcore.Core {
-			return &coreWithLevel{core, lvl}
-		})
+	wrap := func(core zapcore.Core) zapcore.Core {
+		leveled := &coreWithLevel{core, lvl}
+
+		return leveled
+	}
+
+	return zap.WrapCore(wrap)
 }

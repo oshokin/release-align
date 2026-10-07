@@ -22,6 +22,7 @@ type (
 		// Commit is the expected commit hash.
 		Commit string
 	}
+	// Manifest maps a repository key to the release it must match.
 	Manifest map[string]*Release
 )
 
@@ -40,19 +41,15 @@ func (t Manifest) Lookup(relative, name string) (*Release, bool) {
 	return v, ok
 }
 
+// LoadManifest reads the built-in version table and an optional override file.
 func LoadManifest(path string) (Manifest, error) {
 	values := map[string]string{}
 	if err := json.Unmarshal(defaults, &values); err != nil {
 		return nil, err
 	}
 
-	if path != "" {
-		overrides, err := readOverrides(path)
-		if err != nil {
-			return nil, err
-		}
-
-		maps.Copy(values, overrides)
+	if err := applyOverrides(path, values); err != nil {
+		return nil, err
 	}
 
 	result := make(Manifest, len(values))
@@ -76,6 +73,22 @@ func LoadManifest(path string) (Manifest, error) {
 	}
 
 	return result, nil
+}
+
+// applyOverrides copies a versions file over the built-in table.
+func applyOverrides(path string, values map[string]string) error {
+	if path == "" {
+		return nil
+	}
+
+	overrides, err := readOverrides(path)
+	if err != nil {
+		return err
+	}
+
+	maps.Copy(values, overrides)
+
+	return nil
 }
 
 // readOverrides loads a JSON map of service versions from path.
