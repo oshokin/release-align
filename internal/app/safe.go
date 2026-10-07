@@ -17,15 +17,14 @@ const (
 )
 
 // safeCurrent reports why this repository must be left untouched.
-// localKeep allows a dirty tree through. localReset allows a dirty tree and a diverged branch through.
-// A detached HEAD and an unfinished merge or rebase are always a skip.
+// A dirty tree, a detached HEAD, and an unfinished merge or rebase always block.
 func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, error) {
 	status, err := r.porcelain(ctx, repo)
 	if err != nil {
 		return "", err
 	}
 
-	if status != "" && r.cfg.Local == localSkip {
+	if status != "" {
 		return r.dirtyTreeReason(status, r.dirtyPathLimit(ctx)), nil
 	}
 
@@ -41,10 +40,6 @@ func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, err
 
 	if err != nil {
 		return "", err
-	}
-
-	if r.cfg.Local == localReset {
-		return "", nil
 	}
 
 	upstream, err := r.git.Local(

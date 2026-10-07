@@ -23,7 +23,10 @@ func ResolveRevision(ctx context.Context, g LocalGit, dir string, spec *Revision
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
-	result := &ResolvedRevision{Kind: revisionCommit, Value: spec.Commit}
+	result := &ResolvedRevision{
+		Kind:  revisionCommit,
+		Value: spec.Commit,
+	}
 
 	ref, err := revisionRef(ctx, g, dir, spec, result)
 	if err != nil {
@@ -82,7 +85,7 @@ func ResolveProjectDirectory(base, relative string) (string, error) {
 }
 
 // ObserveWorkspaceState does not decide whether switching is safe.
-// The existing safeCurrent/branchReset checks remain mandatory before mutations.
+// safeCurrent remains mandatory before mutations.
 func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*ObservedState, error) {
 	top, err := g.Local(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
@@ -129,7 +132,11 @@ func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*Observ
 	if err != nil {
 		return nil, err
 	}
-	state := &ObservedState{Head: head, Branch: branch, Dirty: status != ""}
+	state := &ObservedState{
+		Head:   head,
+		Branch: branch,
+		Dirty:  status != "",
+	}
 
 	for _, name := range gitOperationNames() {
 		p, pathErr := g.Local(ctx, dir, "rev-parse", "--git-path", name)

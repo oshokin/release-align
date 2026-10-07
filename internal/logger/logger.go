@@ -47,7 +47,9 @@ func NewWithWriter(level zapcore.LevelEnabler, out io.Writer, options ...zap.Opt
 		level = defaultLevel
 	}
 
-	sink := &plainSyncer{Writer: out}
+	sink := &plainSyncer{
+		Writer: out,
+	}
 
 	core := newTextCore(level, sink, colorEnabled(out))
 

@@ -16,16 +16,22 @@ func TestWorkspaceRealGitResolvesExactly(t *testing.T) {
 	f := setup(t)
 	oid := branch(t, f, "Release-26.3.0")
 	git(t, f.repo, "fetch", "origin")
-	g := &gitter.Client{LocalTimeout: 5 * time.Second}
+	g := &gitter.Client{
+		LocalTimeout: 5 * time.Second,
+	}
 	ctx := context.Background()
-	release := &RevisionSpec{Branch: "Release-26.3.0"}
+	release := &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	target, err := ResolveRevision(ctx, g, f.repo, release)
 
 	if err != nil || target.OID != oid {
 		t.Fatal(target, err)
 	}
 
-	absent := &RevisionSpec{Branch: "absent"}
+	absent := &RevisionSpec{
+		Branch: "absent",
+	}
 	_, err = ResolveRevision(ctx, g, f.repo, absent)
 
 	if !errors.Is(err, ErrWorkspaceTargetMissing) {
@@ -33,14 +39,18 @@ func TestWorkspaceRealGitResolvesExactly(t *testing.T) {
 	}
 
 	git(t, f.repo, "tag", "-a", "v-test", "-m", "test", oid)
-	annotated := &RevisionSpec{Tag: "v-test"}
+	annotated := &RevisionSpec{
+		Tag: "v-test",
+	}
 
 	tag, err := ResolveRevision(ctx, g, f.repo, annotated)
 	if err != nil || tag.OID != oid {
 		t.Fatal("annotated tag not peeled", tag, err)
 	}
 
-	exact := &RevisionSpec{Commit: oid}
+	exact := &RevisionSpec{
+		Commit: oid,
+	}
 
 	pinned, err := ResolveRevision(ctx, g, f.repo, exact)
 	if err != nil || pinned.OID != oid {

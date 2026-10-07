@@ -70,6 +70,8 @@ func (r *runner) applyItem(ctx context.Context, item *workspaceItem) error {
 	}
 
 	if err = r.checkoutPlanned(ctx, item); err != nil {
+		r.observeFailedApply(ctx, item)
+
 		return r.failApply(ctx, item, err)
 	}
 
@@ -108,6 +110,8 @@ func (r *runner) failApply(ctx context.Context, item *workspaceItem, err error) 
 
 // confirmItem accepts the row only when the observed HEAD matches the pin.
 func (r *runner) confirmItem(ctx context.Context, item *workspaceItem) error {
+	item.row.Actual = nil
+
 	state, err := ObserveWorkspaceState(ctx, r.git, item.dir)
 	if err != nil {
 		return r.failApply(ctx, item, err)
@@ -131,4 +135,19 @@ func (r *runner) confirmItem(ctx context.Context, item *workspaceItem) error {
 	item.row.Actual = state
 
 	return errWorkspaceTargetChanged
+}
+
+// observeFailedApply discards pre-checkout state and attempts a fresh local observation.
+// An interrupted run keeps actual absent instead of starting more subprocesses.
+func (r *runner) observeFailedApply(ctx context.Context, item *workspaceItem) {
+	item.row.Actual = nil
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	state, err := ObserveWorkspaceState(ctx, r.git, item.dir)
+	if err == nil {
+		item.row.Actual = state
+	}
 }

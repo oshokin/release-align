@@ -67,7 +67,7 @@ func (r *runner) switchBlocker(
 	return r.branchBlocker(ctx, item, resolved)
 }
 
-// mapSafeReason maps a legacy safety message onto a workspace reason code.
+// mapSafeReason maps a safety message onto a workspace reason code.
 func (*runner) mapSafeReason(reason string) string {
 	switch {
 	case strings.Contains(reason, "unpushed"), strings.Contains(reason, "diverges"):

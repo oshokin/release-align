@@ -3,29 +3,22 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// Config is immutable after CLI parsing. Durations accept Go units or legacy seconds.
+// Config is immutable after CLI parsing. Durations use Go units.
 type Config struct {
-	// BaseDir is the root directory walked for Git repositories.
+	// BaseDir is the root that contains the clones named by the workspace file.
 	BaseDir string
-	// Branch is the preferred origin branch.
+	// Branch replaces default_branch when the flag is present on the command line.
 	Branch string
-	// VersionsFile overrides the built-in service version table when set.
-	VersionsFile string
-	// Depth is how many directory levels below BaseDir are searched.
-	Depth int
 	// Jobs is the number of repositories updated at once.
 	Jobs int
 	// Attempts is the total number of origin probe tries, not extra retries.
 	Attempts int
 	// DryRun plans updates without fetching or writing.
 	DryRun bool
-	// Local chooses skip, keep, or reset for local commits and edits.
-	Local string
 	// LogLevel is a zap level name. Case does not matter.
 	LogLevel string
 	// ProbeTimeout limits one origin reachability check.
@@ -36,7 +29,7 @@ type Config struct {
 	FetchTimeout time.Duration
 	// LocalTimeout limits git commands that do not talk to a remote.
 	LocalTimeout time.Duration
-	// WorkspaceFile is an explicit project inventory. Empty keeps legacy discovery.
+	// WorkspaceFile is the project inventory. It is required.
 	WorkspaceFile string
 	// Repositories selects workspace paths. Empty selects every project, unless Groups is set.
 	Repositories []string
@@ -53,12 +46,6 @@ type Config struct {
 }
 
 const (
-	// localSkip leaves a dirty tree or a diverged branch untouched.
-	localSkip = "skip"
-	// localKeep carries uncommitted edits onto the updated branch.
-	localKeep = "keep"
-	// localReset discards local commits and uncommitted edits.
-	localReset = "reset"
 	// gitNoOverwriteIgnore keeps ignored files from being replaced by checkout.
 	gitNoOverwriteIgnore = "--no-overwrite-ignore"
 )
@@ -68,16 +55,7 @@ func (c *Config) JSON() bool {
 	return c != nil && c.Output == outputJSON
 }
 
-// ParseDuration accepts a Go duration or a bare number of seconds.
-func (c *Config) ParseDuration(s string) (time.Duration, error) {
-	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		s += "s"
-	}
-
-	return time.ParseDuration(s)
-}
-
-// DefaultConfig returns the built-in paths, timeouts, and local policy.
+// DefaultConfig returns the built-in paths, timeouts, and output format.
 func DefaultConfig() *Config {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -92,10 +70,8 @@ func DefaultConfig() *Config {
 			"gitlab.stageoffice.ru",
 		),
 		Branch:       "master",
-		Depth:        2,
 		Jobs:         4,
 		Attempts:     3,
-		Local:        localSkip,
 		LogLevel:     "info",
 		ProbeTimeout: 5 * time.Second,
 		RetryDelay:   time.Second,

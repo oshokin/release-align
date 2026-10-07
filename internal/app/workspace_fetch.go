@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // fetchWorkspace fetches every pending repository and records failures.
@@ -59,7 +60,7 @@ func (r *runner) fetchRepos(ctx context.Context, cancel context.CancelCauseFunc,
 
 	for _, repo := range repos {
 		if locks[repo.common] == nil {
-			locks[repo.common] = &sync.Mutex{}
+			locks[repo.common] = new(sync.Mutex)
 		}
 	}
 
@@ -127,30 +128,68 @@ func (r *runner) fetchLocked(
 	defer lock.Unlock()
 
 	if ctx.Err() != nil {
-		return fetchOutcome{repo: repo, err: context.Cause(ctx)}
+		return fetchOutcome{
+			repo: repo,
+			err:  context.Cause(ctx),
+		}
 	}
 
-	fail := func(err error) *result {
-		failed := &result{repo: repo, status: statusFailed, message: err.Error()}
-
-		return failed
-	}
-	res := r.fetch(ctx, repo, fail, recoverNetwork)
-
-	if res == nil {
-		return fetchOutcome{repo: repo}
+	fetchErr := r.fetch(ctx, repo, recoverNetwork)
+	if fetchErr == nil {
+		return fetchOutcome{
+			repo: repo,
+		}
 	}
 
-	if res.status != statusCanceled && ctx.Err() == nil {
-		return fetchOutcome{repo: repo, err: r.gitTextError(res.message)}
+	if ctx.Err() == nil {
+		return fetchOutcome{
+			repo: repo,
+			err:  r.gitTextError(fetchErr.Error()),
+		}
 	}
 
 	err := r.canceledFetchError(ctx)
 	if err == nil {
-		err = r.gitTextError(res.message)
+		err = r.gitTextError(fetchErr.Error())
 	}
 
-	return fetchOutcome{repo: repo, err: err}
+	return fetchOutcome{
+		repo: repo,
+		err:  err,
+	}
+}
+
+// fetch updates origin once, and retries a single time after the remote is confirmed reachable.
+func (r *runner) fetch(ctx context.Context, repo *repository, recoverNetwork func(*repository) error) error {
+	logger.Debug(ctx, "Fetching origin branches and tags")
+
+	err := r.git.Fetch(ctx, repo.path, r.cfg.FetchTimeout)
+	if err == nil {
+		return nil
+	}
+
+	if !gitter.NetworkError(err) {
+		return err
+	}
+
+	if checkErr := recoverNetwork(repo); checkErr != nil {
+		return checkErr
+	}
+
+	err = r.git.Fetch(ctx, repo.path, r.cfg.FetchTimeout)
+	if err == nil {
+		return nil
+	}
+
+	if !gitter.NetworkError(err) {
+		return err
+	}
+
+	if checkErr := recoverNetwork(repo); checkErr != nil {
+		return checkErr
+	}
+
+	return err
 }
 
 // canceledFetchError returns the cancellation cause when a fetch was stopped.

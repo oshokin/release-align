@@ -71,7 +71,9 @@ func TestCommandTimeoutAndNoPrompt(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	start := time.Now()
-	client := &Client{LocalTimeout: 100 * time.Millisecond}
+	client := &Client{
+		LocalTimeout: 100 * time.Millisecond,
+	}
 	_, e := client.Local(context.Background(), dir, "status")
 
 	if !errors.Is(e, context.DeadlineExceeded) {
@@ -99,7 +101,9 @@ func TestNoShellInterpolation(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	arg := "$(touch PWNED); echo bad"
-	client := &Client{LocalTimeout: time.Second}
+	client := &Client{
+		LocalTimeout: time.Second,
+	}
 	out, e := client.Local(context.Background(), dir, arg)
 
 	if e != nil || !strings.Contains(out, arg) {

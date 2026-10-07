@@ -13,7 +13,9 @@ func TestWorkspacePinnedDetachedCheckoutIsIdempotent(t *testing.T) {
 	oid := branch(t, f, "Release-26.3.0")
 	git(t, f.repo, "fetch", "origin")
 	git(t, f.repo, "checkout", "--detach", oid)
-	revision := &RevisionSpec{Commit: oid}
+	revision := &RevisionSpec{
+		Commit: oid,
+	}
 	spec := oneProject(t, "group/repo with spaces", revision)
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
@@ -33,7 +35,9 @@ func TestWorkspaceRefusesOtherDetachedHead(t *testing.T) {
 	current := git(t, f.repo, "rev-parse", "HEAD")
 	oid := branch(t, f, "Release-26.3.0")
 	git(t, f.repo, "checkout", "--detach", current)
-	revision := &RevisionSpec{Commit: oid}
+	revision := &RevisionSpec{
+		Commit: oid,
+	}
 	spec := oneProject(t, "group/repo with spaces", revision)
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
@@ -131,8 +135,15 @@ func TestWorkspaceBranchOverrideKeepsExplicitRevision(t *testing.T) {
 		SchemaVersion: 1,
 		DefaultBranch: "Release-26.3.0",
 		Projects: []*ProjectSpec{
-			{Path: "search/pasifae"},
-			{Path: "storage/dos", Revision: &RevisionSpec{Tag: "v4.499.6"}},
+			{
+				Path: "search/pasifae",
+			},
+			{
+				Path: "storage/dos",
+				Revision: &RevisionSpec{
+					Tag: "v4.499.6",
+				},
+			},
 		},
 	}
 	next, err := spec.WithDefaultBranch("Release-26.4.0")

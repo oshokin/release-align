@@ -74,6 +74,20 @@ func (r *runner) checkoutOID(ctx context.Context, repo *repository, oid string) 
 	return err
 }
 
+// switchTo checks out branch, creating it from the origin ref when it is missing locally.
+func (r *runner) switchTo(ctx context.Context, repo *repository, branch, remote string, create bool) error {
+	args := []string{"switch", gitNoOverwriteIgnore}
+	if create {
+		args = append(args, "--create", branch, "--track", remote)
+	} else {
+		args = append(args, "--", branch)
+	}
+
+	_, err := r.git.Local(ctx, repo.path, args...)
+
+	return err
+}
+
 // branchBusy reports whether another worktree has the target branch checked out.
 func (r *runner) branchBusy(ctx context.Context, repo *repository, branch string) (bool, error) {
 	out, err := r.git.Local(ctx, repo.path, "worktree", "list", "--porcelain", "-z")

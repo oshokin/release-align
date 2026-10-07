@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// WorkspaceSpec is an explicit inventory; it never inherits defaults.json.
+// WorkspaceSpec is the project inventory.
 type WorkspaceSpec struct {
 	SchemaVersion int            `json:"schema_version"`
 	Release       string         `json:"release,omitempty"`
@@ -94,10 +94,16 @@ func LoadWorkspace(filename string) (*WorkspaceSpec, error) {
 // RevisionFor returns the project revision or the workspace default branch.
 func (w *WorkspaceSpec) RevisionFor(p *ProjectSpec) *RevisionSpec {
 	if p.Revision == nil {
-		return &RevisionSpec{Branch: w.DefaultBranch}
+		return &RevisionSpec{
+			Branch: w.DefaultBranch,
+		}
 	}
 
-	return &RevisionSpec{Branch: p.Revision.Branch, Tag: p.Revision.Tag, Commit: p.Revision.Commit}
+	return &RevisionSpec{
+		Branch: p.Revision.Branch,
+		Tag:    p.Revision.Tag,
+		Commit: p.Revision.Commit,
+	}
 }
 
 // SelectProjects uses a union of explicit paths and groups. Empty filters select all.
@@ -156,11 +162,11 @@ func (w *WorkspaceSpec) WithDefaultBranch(branch string) (*WorkspaceSpec, error)
 		return nil, fmt.Errorf("%w: %w", errWorkspaceBranchOverride, err)
 	}
 
-	return &next, nil
+	return next, nil
 }
 
 // clone returns an independent inventory. Each project, group list, and revision is its own value.
-func (w *WorkspaceSpec) clone() WorkspaceSpec {
+func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 	var projects []*ProjectSpec
 
 	if w.Projects != nil {
@@ -170,7 +176,7 @@ func (w *WorkspaceSpec) clone() WorkspaceSpec {
 		}
 	}
 
-	return WorkspaceSpec{
+	return &WorkspaceSpec{
 		SchemaVersion: w.SchemaVersion,
 		Release:       w.Release,
 		DefaultBranch: w.DefaultBranch,

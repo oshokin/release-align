@@ -9,7 +9,13 @@ import (
 
 // TestHelpVersionAndInvalidFlags verifies help, version, and rejected flags.
 func TestHelpVersionAndInvalidFlags(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"version"}, {"--version"}} {
+	commands := [][]string{
+		{"--help"},
+		{"version"},
+		{"--version"},
+	}
+
+	for _, args := range commands {
 		var out, err bytes.Buffer
 
 		if code := Execute(args, &out, &err); code != exitOK {
@@ -35,6 +41,8 @@ func TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment(t *testing.T) {
 		{"--version"},
 		{"completion", "bash"},
 		{"status", "--help"},
+		{"workspace", "--help"},
+		{"workspace", "init", "--help"},
 	}
 
 	for _, args := range commands {
@@ -48,24 +56,21 @@ func TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment(t *testing.T) {
 
 // TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState verifies that flags beat the environment and commands do not share state.
 func TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState(t *testing.T) {
-	t.Setenv("BASE_DIR", t.TempDir())
-	t.Setenv("JOBS", "9")
+	t.Setenv("JOBS", "invalid")
 
-	for _, args := range [][]string{{"-n", "-j", "2"}, {"--dry-run"}} {
-		var out, err bytes.Buffer
+	var out, err bytes.Buffer
 
-		if code := Execute(args, &out, &err); code != exitOK {
-			t.Fatal(code, err.String())
-		}
+	overridden := []string{"--jobs", "2", "--workspace", "missing.json", "--output", "json"}
+	if code := Execute(overridden, &out, &err); code != exitUsage || !strings.Contains(out.String(), "missing.json") {
+		t.Fatalf("%d %s %s", code, out.String(), err.String())
+	}
 
-		want := "workers=9"
-		if len(args) > 1 {
-			want = "workers=2"
-		}
+	out.Reset()
+	err.Reset()
 
-		if !strings.Contains(out.String(), want) {
-			t.Fatalf("want %s in %s", want, out.String())
-		}
+	fromEnv := []string{"--workspace", "missing.json", "--output", "json"}
+	if code := Execute(fromEnv, &out, &err); code != exitUsage || !strings.Contains(out.String(), "JOBS") {
+		t.Fatalf("%d %s %s", code, out.String(), err.String())
 	}
 }
 

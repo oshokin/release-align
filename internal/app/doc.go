@@ -1,2 +1,2 @@
-// Package app discovers Git repositories and fast-forwards them onto one release.
+// Package app switches the clones listed in a workspace file onto their exact revisions.
 package app

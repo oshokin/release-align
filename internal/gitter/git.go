@@ -17,13 +17,16 @@ import (
 type Client struct {
 	// LocalTimeout limits Git commands that do not talk to a remote.
 	LocalTimeout time.Duration
+	// NoLazyFetch prevents read-only commands from contacting promisor remotes.
+	NoLazyFetch bool
 }
 
 // CommandError is a failed git invocation, including its arguments and combined output.
 type CommandError struct {
 	// Args are the Git arguments that were run.
 	Args []string
-	// Output is the combined stdout and stderr.
+	// Output is the original combined stdout and stderr, kept for classification.
+	// Print Error, which removes URL credentials. Do not print Output directly.
 	Output string
 	// Err is the process error.
 	Err error
@@ -51,46 +54,7 @@ func (c *Client) Run(ctx context.Context, dir string, timeout time.Duration, arg
 		)...)
 	cmd.Dir = dir
 
-	var env []string
-
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		switch key {
-		case "GIT_DIR",
-			"GIT_WORK_TREE",
-			"GIT_INDEX_FILE",
-			"GIT_COMMON_DIR",
-			"GIT_OBJECT_DIRECTORY",
-			"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-			"GIT_NAMESPACE":
-			continue
-		}
-
-		env = append(env, entry)
-	}
-
-	ssh := os.Getenv("GIT_SSH_COMMAND")
-	if ssh == "" && os.Getenv("GIT_SSH") == "" {
-		ssh = "ssh -oBatchMode=yes -oNumberOfPasswordPrompts=0 -oStrictHostKeyChecking=accept-new -oConnectTimeout=5 -oConnectionAttempts=1"
-	}
-
-	env = append(
-		env,
-		"GIT_TERMINAL_PROMPT=0",
-		"GCM_INTERACTIVE=Never",
-		"GIT_ASKPASS=false",
-		"SSH_ASKPASS=false",
-		"SSH_ASKPASS_REQUIRE=never",
-		"GIT_OPTIONAL_LOCKS=0",
-		"LC_ALL=C",
-		"LANG=C",
-		"GIT_PAGER=cat",
-	)
-	if ssh != "" {
-		env = append(env, "GIT_SSH_COMMAND="+ssh)
-	}
-
-	cmd.Env = env
+	cmd.Env = c.commandEnv()
 	cmd.WaitDelay = 250 * time.Millisecond
 	c.configureProcess(cmd)
 
@@ -105,7 +69,11 @@ func (c *Client) Run(ctx context.Context, dir string, timeout time.Duration, arg
 	}
 
 	if err != nil {
-		return "", &CommandError{Args: args, Output: strings.TrimSpace(stderr.String() + stdout.String()), Err: err}
+		return "", &CommandError{
+			Args:   args,
+			Output: strings.TrimSpace(stderr.String() + stdout.String()),
+			Err:    err,
+		}
 	}
 
 	// Trim only the trailing newline. Porcelain v1 uses a leading space (" M file").
@@ -150,9 +118,9 @@ func (c *Client) Fetch(ctx context.Context, dir string, timeout time.Duration) e
 	return err
 }
 
-// Error formats the failed git command, its cause, and its output.
+// Error formats the failed git command with URL credentials removed.
 func (e *CommandError) Error() string {
-	return fmt.Sprintf("git %s: %v: %s", strings.Join(e.Args, " "), e.Err, e.Output)
+	return RedactText(fmt.Sprintf("git %s: %v: %s", strings.Join(e.Args, " "), e.Err, e.Output))
 }
 
 // Unwrap returns the error from the git process.
@@ -220,4 +188,52 @@ func NetworkError(err error) bool {
 	}
 
 	return false
+}
+
+// commandEnv isolates repository selection and applies noninteractive Git settings.
+func (c *Client) commandEnv() []string {
+	var env []string
+
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		switch key {
+		case "GIT_DIR",
+			"GIT_WORK_TREE",
+			"GIT_INDEX_FILE",
+			"GIT_COMMON_DIR",
+			"GIT_OBJECT_DIRECTORY",
+			"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+			"GIT_NAMESPACE":
+			continue
+		}
+
+		env = append(env, entry)
+	}
+
+	ssh := os.Getenv("GIT_SSH_COMMAND")
+	if ssh == "" && os.Getenv("GIT_SSH") == "" {
+		ssh = "ssh -oBatchMode=yes -oNumberOfPasswordPrompts=0 -oStrictHostKeyChecking=accept-new -oConnectTimeout=5 -oConnectionAttempts=1"
+	}
+
+	env = append(
+		env,
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=Never",
+		"GIT_ASKPASS=false",
+		"SSH_ASKPASS=false",
+		"SSH_ASKPASS_REQUIRE=never",
+		"GIT_OPTIONAL_LOCKS=0",
+		"LC_ALL=C",
+		"LANG=C",
+		"GIT_PAGER=cat",
+	)
+	if ssh != "" {
+		env = append(env, "GIT_SSH_COMMAND="+ssh)
+	}
+
+	if c.NoLazyFetch {
+		env = append(env, "GIT_NO_LAZY_FETCH=1")
+	}
+
+	return env
 }

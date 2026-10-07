@@ -11,7 +11,9 @@ import (
 
 // configureProcess puts the Git process in its own group so cancellation can reach the whole tree.
 func (c *Client) configureProcess(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return os.ErrProcessDone

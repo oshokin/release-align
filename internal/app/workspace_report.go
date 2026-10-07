@@ -136,29 +136,3 @@ func WriteWorkspaceReport(dst io.Writer, report *WorkspaceReport) error {
 
 	return enc.Encode(report)
 }
-
-// FrozenWorkspace records observed clean commits. It does not execute Git.
-func FrozenWorkspace(report *WorkspaceReport) (*WorkspaceSpec, error) {
-	if report == nil || !report.Ready || !report.Coverage || report.DryRun || len(report.Rows) == 0 ||
-		len(report.Errors) != 0 ||
-		report.ExpectedCount != len(report.Rows) {
-		return nil, errWorkspaceFreezeIncomplete
-	}
-	w := &WorkspaceSpec{SchemaVersion: 1, Release: report.Release}
-	for _, row := range report.Rows {
-		if !row.MatchesContract() {
-			return nil, errWorkspaceFreezeMismatch
-		}
-		revision := &RevisionSpec{Commit: row.Actual.Head}
-		project := &ProjectSpec{Path: row.Path, Revision: revision}
-		w.Projects = append(w.Projects, project)
-	}
-
-	if err := w.Validate(); err != nil {
-		return nil, err
-	}
-
-	slices.SortFunc(w.Projects, func(a, b *ProjectSpec) int { return strings.Compare(a.Path, b.Path) })
-
-	return w, nil
-}

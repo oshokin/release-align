@@ -16,7 +16,10 @@ func TestRandomDelayInRange(t *testing.T) {
 		maxDelay = 20 * time.Millisecond
 	)
 
-	p := &randomRangePolicy{minDelay: minDelay, maxDelay: maxDelay}
+	p := &randomRangePolicy{
+		minDelay: minDelay,
+		maxDelay: maxDelay,
+	}
 
 	for range 500 {
 		delay := p.randomDelay()
@@ -34,7 +37,10 @@ func TestRandomDelayInRange_SwapsBounds(t *testing.T) {
 		maxDelay = 15 * time.Millisecond
 	)
 
-	p := &randomRangePolicy{minDelay: maxDelay, maxDelay: minDelay}
+	p := &randomRangePolicy{
+		minDelay: maxDelay,
+		maxDelay: minDelay,
+	}
 
 	for range 500 {
 		delay := p.randomDelay()
@@ -48,7 +54,10 @@ func TestRandomDelayInRange_EqualBounds(t *testing.T) {
 	t.Parallel()
 
 	expectedDelay := 42 * time.Millisecond
-	p := &randomRangePolicy{minDelay: expectedDelay, maxDelay: expectedDelay}
+	p := &randomRangePolicy{
+		minDelay: expectedDelay,
+		maxDelay: expectedDelay,
+	}
 	assert.Equal(t, expectedDelay, p.randomDelay())
 }
 

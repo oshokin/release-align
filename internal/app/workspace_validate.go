@@ -12,7 +12,9 @@ func (w *WorkspaceSpec) Validate() error {
 		return errWorkspaceSchema
 	}
 
-	branch := &RevisionSpec{Branch: w.DefaultBranch}
+	branch := &RevisionSpec{
+		Branch: w.DefaultBranch,
+	}
 	if w.DefaultBranch != "" && !branch.safeRevisionName() {
 		return errWorkspaceDefaultBranch
 	}

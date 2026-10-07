@@ -1,10 +1,10 @@
 # release-align
 
-release-align moves a directory of local Git clones onto one release, and stops the whole walk if origin cannot be reached.
+release-align moves the clones listed in a workspace file onto exact revisions, and stops the run if origin cannot be reached.
 
-The clones sit side by side, in the GOPATH layout `<base-dir>/<group>/<repo>`. There is no superproject. Each service is sent to `origin/<branch>`, to the origin branch that contains the commit listed in the version table, to the tag from that table, or to the current branch when that branch already tracks origin. A dirty work tree, an unfinished rebase, a detached HEAD, an upstream on some other remote, and local commits that have not been pushed are left untouched.
+The clones sit side by side under `--base-dir`. There is no superproject. Each selected project is sent to `origin/<branch>`, to a tag, or to a full commit named in the file. A dirty work tree, an unfinished rebase, a detached HEAD that is not already the pin, an upstream on some other remote, and local commits that have not been pushed are left untouched.
 
-`mr`, `gita`, and `git submodule foreach` run one command in every copy. They have no rule for picking a branch from a version table, and they have no shared stop when SSH to GitLab dies. `submodule foreach` also requires a superproject.
+`mr`, `gita`, and `git submodule foreach` run one command in every copy. They have no shared stop when SSH to GitLab dies. `submodule foreach` also requires a superproject.
 
 A loop of `git pull` waits out its own timeout in each repository and merges however that repository is configured. Nothing asks whether origin answers before the first fetch.
 
@@ -17,38 +17,32 @@ Module path: `github.com/oshokin/release-align`. Building needs Go 1.27.1. Runni
 ```bash
 go build -o release-align .
 
+release-align workspace init \
+  --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
+  --branch Release-26.3.0 \
+  --file ./mailion.workspace.json
+
 # Plan from refs already on disk. No network, no writes.
-./release-align --dry-run
+./release-align --workspace ./mailion.workspace.json --dry-run
 
-# Default branch: master.
-./release-align
-
-# One release branch for the tree.
-./release-align --branch Release-2.3.2 --jobs 4
-
-# Another directory and another version table.
-./release-align --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
-  --branch Release-2.3.2 --versions-file "$HOME/versions.json"
+./release-align --workspace ./mailion.workspace.json --jobs 4
 
 ./release-align --help
 ./release-align version
 ```
 
-By default the walk takes repositories at depth 2 only: `<base-dir>/<group>/<repo>`. `--depth 3` takes level 3 only. Hidden directories are skipped. Directory symlinks are not followed. Both a `.git` directory and a worktree `.git` file qualify.
-
 ## Commands
 
-The program takes no positional arguments. A flag overrides the environment variable for the same setting. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. The walk does not: a bad flag, a bad variable, or a bad version table exits 2 before any repository is touched.
+The program takes no positional arguments. `--workspace` is required for a sync or a status check. An explicit flag wins over the environment variable for the same setting, and that variable is not parsed when the flag is present. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. After the flags have been parsed, a bad value or a bad workspace document exits 2 before any repository is touched. A value the parser itself rejects (`--jobs bad`, an unknown flag) is Cobra's own message: stdout is empty and the status is 2. Help and version stay text as well. When `--output json` is selected, a usage or runtime error of that run is one JSON object on stdout and progress stays on stderr. JSON is not promised before the parser can tell which command is running, and a run does not mix JSON with text.
 
 ### release-align
 
-Walks the base directory and updates each clone.
+Prepares the clones named in the workspace file.
 
 ```bash
-release-align --base-dir ~/src --branch Release-2.3.2 --jobs 4 --log-level debug
-release-align -n -j 8 -l warn
-release-align --local keep
-release-align --local reset --versions-file "$HOME/versions.json"
+release-align --base-dir ~/src --workspace ./mailion.workspace.json --jobs 4 --log-level debug
+release-align --workspace ./mailion.workspace.json -n -j 8 -l warn
+release-align --workspace ./mailion.workspace.json --group search --repo storage/dispersed-object-store
 ```
 
 | Flag | Short | Default | Environment | Meaning |
@@ -56,20 +50,21 @@ release-align --local reset --versions-file "$HOME/versions.json"
 | `--help` | `-h` | | | Print help and exit |
 | `--version` | `-v` | | | Print the version line and exit |
 | `--base-dir` | | `$HOME/go/src/gitlab.stageoffice.ru` | `BASE_DIR` | Root that contains the clones. `~` and `~/...` expand to the home directory. The path is stored absolute. An empty value is an error |
-| `--branch` | | `master` | `RELEASE_BRANCH` | Preferred origin branch. Empty, or a name that starts with `-`, is an error |
-| `--depth` | | `2` | `MAX_DEPTH` | Exact directory depth below the base, from 1 to 32. This is not "up to" that depth |
-| `--versions-file` | | built-in table | `VERSIONS_FILE` | JSON object that replaces built-in entries with the same key. Omitted means the 43 compiled entries |
-| `--dry-run` | `-n` | `false` | `DRY_RUN` | Plan from refs already on disk. No probe, fetch, switch, stash, clean, or merge |
-| `--local` | | `skip` | `LOCAL` | `skip`, `keep`, or `reset`, any case. `skip` leaves local commits and edits. `keep` carries uncommitted files onto the update and still skips local commits. `reset` discards local commits and edits on the selected branch |
+| `--branch` | | `master` | | Replaces `default_branch` only when this flag is present. The built-in default does not |
+| `--workspace` | | | | Workspace JSON. Required |
+| `--repo` | | | | Select a project by its relative path. Repeatable. Combined with `--group` as a union |
+| `--group` | | | | Select a group. Repeatable |
+| `--dry-run` | `-n` | `false` | `DRY_RUN` | Plan from refs already on disk. No probe, fetch, switch, or merge |
 | `--log-level` | `-l` | `info` | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`, any case |
 | `--jobs` | `-j` | `4` | `JOBS` | Repositories processed at once, from 1 to 64 |
 | `--attempts` | | `3` | `ATTEMPTS` | Origin checks in total, including the first, from 1 to 10. `1` does not start the retry engine |
-| `--probe-timeout` | | `5s` | `LSREMOTE_TIMEOUT` | Timeout of one `git ls-remote` |
+| `--probe-timeout` | | `5s` | `PROBE_TIMEOUT` | Timeout of one `git ls-remote` |
 | `--retry-delay` | | `1s` | `RETRY_DELAY` | Pause between failed origin checks. `0` is allowed |
 | `--fetch-timeout` | | `1m` | `FETCH_TIMEOUT` | Timeout of one fetch |
-| `--local-timeout` | | `40s` | `CHECKOUT_TIMEOUT` | Timeout of one local Git command |
+| `--local-timeout` | | `40s` | `LOCAL_TIMEOUT` | Timeout of one local Git command |
+| `--output` | | `text` | | `text` or `json` |
 
-On the command line a duration needs a Go unit: `5s`, `750ms`, `1m`. In the environment a bare number is seconds, so `60` and `60s` are the same. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
+A duration needs a Go unit on the command line and in the environment: `5s`, `750ms`, `1m`. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
 
 ### release-align version
 
@@ -83,7 +78,7 @@ A build without those linker values prints `dev`, `unknown`, and `unknown`. `rel
 
 ### release-align help
 
-`release-align help`, `--help`, and `-h` print help for the walk. `release-align help version` and `release-align help completion` print help for those commands. `release-align completion --help` does the same for completion.
+`release-align help`, `--help`, and `-h` print help for sync. `release-align help version` and `release-align help completion` print help for those commands. `release-align completion --help` does the same for completion.
 
 ### release-align completion
 
@@ -98,26 +93,57 @@ release-align completion powershell
 
 `--no-descriptions` leaves flag descriptions out of the script. Bash needs the `bash-completion` package. The current bash session can load the script with `source <(release-align completion bash)`.
 
-## Workspace mode
+### release-align status
 
-`--workspace` is a strict inventory. The program prepares only the listed clones and does not treat a finished walk as proof that they match the release. Without `--workspace`, discovery, the version table, fallback, and exit status stay as they were. `--repo` and `--group` require a workspace file.
+Reads cached refs and worktrees. It does not contact a remote and does not accept `--dry-run`.
 
 ```bash
-release-align --base-dir "$HOME/src/gitlab.stageoffice.ru" \
-  --workspace ./examples/mailion.workspace.json --jobs 4
-
-release-align --workspace ./examples/mailion.workspace.json \
-  --group search --repo storage/dispersed-object-store
-
 release-align status --base-dir "$HOME/src/gitlab.stageoffice.ru" \
-  --workspace ./examples/mailion.workspace.json --group search --output json
+  --workspace ./mailion.workspace.json --group search --output json
 ```
 
-Workspace mode uses exact targets and fails when selected projects are not ready. It does not load `defaults.json`. `--versions-file` and an explicit `--depth` are errors. `MAX_DEPTH` does not change this mode. `--branch` replaces `default_branch` only when that flag is present on the command line. `RELEASE_BRANCH` and the legacy default `master` do not. A project revision is one of `branch`, `tag`, or `commit`; if it is omitted, the file's `default_branch` is used. A commit must be a full lowercase SHA-1 or SHA-256. The branch resolves to `origin/<branch>`, the tag to its peeled commit, and the commit to that object. Another branch, another tag, and the current upstream are not substitutes.
+## Workspace file
 
-This mode accepts only `--local skip`. A dirty tree, an unfinished merge or rebase, an unpushed branch, or a detached HEAD that is not already the pinned commit is reported and left untouched. `keep` and `reset` remain available without `--workspace`.
+`workspace init` writes the file from clones that are already on disk. `--base-dir`, `--branch`, and `--file` are required. `--release` is an optional label. `--file` is the new JSON path, not the report format (`--output`). The base directory is not stored in the file: paths stay relative to whatever `--base-dir` you pass later. The branch name is checked for syntax only. Sync and status are what notice a missing branch, a dirty tree, or a commit that is not local yet. `init` does not read the environment variables of sync.
 
-Sync checks origin with the same preflight as the legacy command (`--attempts 3` is three tries total), fetches the selected clones, resolves every target, and switches nothing if any selected project is already blocked. The fast-forward then uses that resolved commit. Afterward the worktree is read again. `ready` comes from that read. Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not contact the network (`freshness` `cached`). A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false.
+```bash
+release-align workspace init \
+  --base-dir "$HOME/src/gitlab.stageoffice.ru" \
+  --branch Release-26.3.0 \
+  --release 'Mailion 26.3.0' \
+  --file ./mailion.workspace.json
+```
+
+A group is the relative path of a parent directory. Every ancestor prefix is recorded. A repository that sits directly under the base directory has no group. `mailion/search` and `another/search` stay separate, because the group is `mailion/search`, not the bare name `search`. `--group mailion` selects everything under that directory. `--group mailion/search` selects that subgroup. These are folder names, not a guess about which services depend on each other, and not a check of GitLab namespaces.
+
+| Directory under the base | Groups |
+| --- | --- |
+| `search/pasifae` | `search` |
+| `mailion/search/pasifae` | `mailion`, `mailion/search` |
+| `mailion/storage/dos` | `mailion`, `mailion/storage` |
+| `standalone` | none |
+
+The scan walks the base directory, skips hidden directories, and does not follow a directory symlink. A `.git` directory or a regular gitfile marks a working tree. A `.git` symlink is rejected. The candidate must be the real repository root. Nested clones inside a found root, including vendor and submodules, are not added. A bare repository is skipped and its object database is not walked. If the base directory itself is a repository, the command stops and asks for the parent directory. A broken `.git`, a read error, or a repository without `origin` stops the command. The file is not written. An empty tree is an error too. A service that was never cloned cannot appear. The file is a starting inventory, not proof that the server has nothing else. Read it, add any missing paths by hand, and keep it.
+
+The document is validated, including the 1 MiB limit, before the destination is opened. The file is created with mode `0600` and only if that path does not exist. A symlink at the destination is also refused. There is no `--force`. The parent directory is not created for you. If the write or close fails, the new partial file is removed. An older file is not replaced. A crash can leave a partial new file; reading it fails as bad JSON. To regenerate, pick another filename and diff:
+
+```bash
+release-align workspace init --base-dir "$HOME/src/gitlab.stageoffice.ru" \
+  --branch Release-26.3.0 --file ./workspace.candidate.json
+diff -u ./mailion.workspace.json ./workspace.candidate.json
+```
+
+A project revision is one of `branch`, `tag`, or `commit`. If it is omitted, the file's `default_branch` is used. `--branch` replaces that default only when the flag is present on the command line. A commit must be a full lowercase SHA-1 or SHA-256. The branch resolves to `origin/<branch>`, the tag to its peeled commit, and the commit to that object. Another branch, another tag, and the current upstream are not substitutes.
+
+A dirty tree, an unfinished merge or rebase, an unpushed branch, or a detached HEAD that is not already the pinned commit is reported and left untouched. Local commits and uncommitted edits are not carried forward and are not discarded.
+
+Sync checks origin (`--attempts 3` is three tries total), fetches the selected clones, resolves every target, and switches nothing if any selected project is already blocked. A successful probe is remembered for that host only. A permission failure is recorded on the repository that was checked; the next repository on the same host is still probed. If one selected repository is blocked, the others are not checked out. A repository that answered is `plan_blocked`, not a copy of the first failure. A network failure still stops the run after the shared attempt budget.
+
+The fast-forward then uses that resolved commit. Afterward the worktree is read again. `ready` comes from that read. If switch or the fast-forward fails, the worktree is read once more and that later read is `actual`. When the read cannot be done, or the run is already canceled, `actual` is omitted. The branch from before the switch is not reported as current. There is no rollback.
+
+The update itself is a local `git merge --ff-only` from the resolved commit. There is no second network request, no merge commit, no rebase, and no push. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is left in place.
+
+Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not contact the network (`freshness` `cached`). Those commands set `GIT_NO_LAZY_FETCH=1` on the Git processes they start, so a partial clone does not download a missing object to answer them. A normal sync does not set that variable. The parent process environment is left unchanged. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
 
 `--output json` writes one JSON object to stdout. Progress and logs go to stderr. `expected_count` is the selection, `inventory_count` is the whole file, and `scope` is `workspace` or `selection`. `coverage_complete` means every selected path has a row, not that every clone exists.
 
@@ -129,41 +155,11 @@ Sync checks origin with the same preflight as the legacy command (`--attempts 3`
 | 3 | The selection is not ready |
 | 130 | Ctrl+C |
 
-`status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created. Nothing is pushed, tagged, or built. The 17 second figure below is only the preflight budget, not a bound on fetch or checkout.
-
-## What happens to a repository
-
-1. A local check: the work tree is clean, no merge, rebase, cherry-pick, revert, or bisect is in progress, HEAD is on a branch, that branch has an upstream on origin, and the branch has no commits that origin does not already have.
-2. Before the first fetch, and once per transport and host, the program runs `git ls-remote origin HEAD`. VPN, SSH config, credentials, and `url.*.insteadOf` all apply. There is no separate HTTP call to the GitLab web UI.
-3. `git fetch --atomic --prune --tags --no-prune-tags` updates origin branches and tags. `--prune` applies to remote-tracking branches. Local tags are neither deleted nor overwritten. A tag conflict fails that repository, and the branch has not been switched yet.
-4. The local check runs again against the updated refs.
-5. The target is chosen in this order:
-
-| Order | Target |
-| --- | --- |
-| 1 | `origin/<branch>`, `origin/master` by default |
-| 2 | The first origin branch, by name, that contains the commit from the table. `origin/HEAD` and other symbolic refs are ignored |
-| 3 | The tag from the table, when no branch contains that commit. HEAD is then detached |
-| 4 | The current local branch and its origin upstream |
-
-A branch that contains the listed commit may have moved past it. The program checks that branch out and fast-forwards it to current origin. The SHA in the table is used to find the branch. The tag from the table is used when no such branch exists. On the fallback path, a renamed local branch keeps its name.
-
-If the target local branch already exists, its history must be an ancestor of the chosen origin branch, and its upstream must be that same ref. Otherwise the repository is skipped before `switch`. A missing local branch is created with tracking set to origin.
-
-The update itself is a local `git merge --ff-only` from the chosen origin ref. There is no second network request, no merge commit, no rebase, and no push. `--local keep` stashes edits first and applies them after the update. `--local reset` discards local commits with `git reset --hard` and removes untracked files with `git clean -fd`. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is also left in place.
+`status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created. Nothing is pushed, tagged, or built.
 
 ## Network and parallelism
 
-| Flag | Default | Meaning |
-| --- | ---: | --- |
-| `--jobs` | 4 | Repositories processed at once |
-| `--attempts` | 3 | Origin checks in total, including the first |
-| `--probe-timeout` | 5s | Timeout of one `ls-remote` |
-| `--retry-delay` | 1s | Pause between checks |
-| `--fetch-timeout` | 1m | Timeout of one fetch |
-| `--local-timeout` | 40s | Timeout of one local Git command |
-
-With three attempts, a 5s probe, and a 1s pause, preflight is bounded by 17s plus the time taken to stop child processes. Directory discovery and the local checks sit outside those 17s. Fetch and checkout wait for a successful preflight. If no repository qualifies, the program makes no network request.
+With three attempts, a 5s probe, and a 1s pause, preflight is bounded by 17s plus the time taken to stop child processes. That figure is only the preflight budget, not a bound on fetch or checkout. Fetch and checkout wait for a successful preflight.
 
 Network errors and timeouts are retried. A rejected key, a permission failure, a missing repository, and an untrusted TLS certificate fail that one repository. The others continue. Git is started with `LC_ALL=C`, and the error text is what classifies the failure. An unrecognized error does not start an open-ended retry loop.
 
@@ -171,79 +167,40 @@ If the network drops after preflight, a failed fetch checks origin again. Three 
 
 Commands inside one repository run one after another. Worktrees that share a git directory are serialized too. `--jobs 1` processes repositories strictly in order. On Linux and macOS a timeout kills the Git process group, SSH included. On Windows the same job is done with `taskkill /T /F`, under its own time limit.
 
-Ctrl+C exits with status 130. Repositories already switched stay switched. There is no rollback of the whole run. If a local command fails after `switch`, that repository is reported as `failed`.
+Ctrl+C exits with status 130. Repositories already switched stay switched. There is no rollback of the whole run.
 
-## Version table
+Each log line is text: the local clock (`2026-10-05 14:20:15`), the level, the repository name, and the message. Paths that block an update are listed under that line, one path per line, at most 10. The rest are a single `... and N more` line. `--log-level debug` lists every path and adds fetch and probe detail. Git's own transcript stays quiet. On a terminal the level and the repository name are colored. `NO_COLOR` leaves the text uncolored. Lines from different workers are not interleaved.
 
-The executable contains 43 entries compiled from `internal/app/defaults.json`. The snapshot is fixed and is not refreshed by itself. `--versions-file` and `VERSIONS_FILE` replace entries with the same key.
-
-JSON:
-
-```json
-{
-  "spanner": "v1.23.3:8284453",
-  "google/borg": "v2.44.1:126c4be",
-  "chubby": ""
-}
-```
-
-The key `group/repo` wins over the key `repo`. An empty string disables the built-in entry with the same key. `{}` leaves the built-in table in place. A commit is 4 to 64 hexadecimal characters. For real repositories, use at least 7 characters, or the full SHA. The file must use a `.json` extension. A broken file and a file larger than 16 MiB stop the run before any network call.
-
-## Dry run and local work
-
-`--dry-run` skips preflight, fetch, switch, checkout, and merge. The plan is built from refs already stored locally. Branches that exist only on the server are invisible, so a real run may pick another target or skip the repository.
-
-`--local` chooses what happens to local commits and edits. The default is `skip`. A detached HEAD and an unfinished merge or rebase are always skipped. After a detach at a tag, the next run sees that detached HEAD again. You choose a tracking branch yourself.
-
-`skip` leaves a dirty tree, a branch with no upstream, a branch that tracks a remote other than origin, and a branch with local commits untouched.
-
-`keep` carries staged, unstaged, and untracked files onto the updated branch. They are stashed with `--include-untracked`, the branch is fast-forwarded or the tag is detached, and the stash is applied without restoring the index, so the edits come back unstaged. The stash entry is dropped only after that apply succeeds. A conflict leaves the entry in place and the repository is failed. If the switch or fast-forward fails, the stash is applied with `--index` so the original staged state returns, and the entry is dropped only when that restore succeeds. Ignored files stay where they are. Local commits are still skipped: putting them on top would be a rebase. `--dry-run` does not stash.
-
-`reset` makes the selected branch match the origin ref already fetched. Local commits on that branch are discarded and remain in the reflog. Staged edits, unstaged edits, and untracked files are removed. Ignored files stay. The branch upstream is set to that origin ref. `--dry-run` reports the discarded commits and edits and does not move the branch.
-
-Each log line is text: the local clock (`2026-10-05 14:20:15`), the level, the repository name, and the message. Paths that block an update are listed under that line, one path per line, at most 10. The rest are a single `... and N more` line. `--log-level debug` lists every path and adds fetch and probe detail. Git's own transcript stays quiet. On a terminal the level and the repository name are colored. `NO_COLOR` leaves the text uncolored. Lines from different workers are not interleaved. Repositories still queued when the run stops are counted as `canceled` and are not listed. The last line is the summary: `total`, `updated`, `planned`, `skipped`, `failed`, and `canceled`. A branch that was already current still counts as `updated` after a successful `--ff-only`.
-
-A normal run creates `<base-dir>/.release-align.lock` and removes it on exit. SIGKILL or a power loss can leave the directory behind. Confirm that the process is gone, then delete that directory. The program never deletes `.git/index.lock`. Other Git clients do not consult this lock, so a second pass over the same clones should not run at the same time.
+A sync creates `<base-dir>/.release-align.lock` and removes it on exit. SIGKILL or a power loss can leave the directory behind. Confirm that the process is gone, then delete that directory. The program never deletes `.git/index.lock`. Other Git clients do not consult this lock, so a second pass over the same clones should not run at the same time.
 
 ## Environment
 
-A flag overrides the environment variable of the same setting. A bad value in the environment is still an error when the same setting is also passed as a flag.
+An explicit flag overrides the environment variable of the same setting. When the flag is present, that variable is not parsed, so an invalid environment value does not reject a valid flag. `workspace init` does not read this table. `--branch` has no environment variable.
 
 | Variable | Flag |
 | --- | --- |
 | `BASE_DIR` | `--base-dir` |
-| `RELEASE_BRANCH` | `--branch` |
-| `MAX_DEPTH` | `--depth` |
-| `VERSIONS_FILE` | `--versions-file` |
 | `DRY_RUN` | `--dry-run` |
-| `LOCAL` | `--local` |
 | `LOG_LEVEL` | `--log-level`, `-l` |
 | `FETCH_TIMEOUT` | `--fetch-timeout` |
-| `LSREMOTE_TIMEOUT` | `--probe-timeout` |
-| `CHECKOUT_TIMEOUT` | `--local-timeout` |
+| `PROBE_TIMEOUT` | `--probe-timeout` |
+| `LOCAL_TIMEOUT` | `--local-timeout` |
 | `JOBS` | `--jobs` |
 | `ATTEMPTS` | `--attempts` |
 | `RETRY_DELAY` | `--retry-delay` |
 
-In the environment a bare number means seconds, so `60` and `60s` are the same. Flags require a unit: `5s`, `750ms`. The default level is `info`. `LOG_LEVEL` accepts the same names as `--log-level`, in any case.
+Durations need a unit in the environment as well: `5s`, `750ms`, `1m`. The default level is `info`. `LOG_LEVEL` accepts the same names as `--log-level`, in any case.
 
 Git is not asked for a password. Existing credentials and `ssh-agent` are used. If `GIT_SSH_COMMAND` or `GIT_SSH` is set, that value is kept, and the outer timeout still applies. Otherwise OpenSSH is started with `BatchMode=yes`, `ConnectTimeout=5`, one connection attempt, and `StrictHostKeyChecking=accept-new`. A new host key may be written to `known_hosts` on a normal run. Add a passphrase-protected key with `ssh-add` beforehand.
 
-| Status | When |
-| --- | --- |
-| 0 | The walk finished. Skipped repositories that were unsafe to touch do not change this |
-| 1 | At least one repository failed: Git, the lock, the directory walk, or an unreachable origin |
-| 2 | Bad flags, bad environment, or a bad version table |
-| 130 | Ctrl+C, or another SIGINT |
-
 ## Building
 
-The code lives in `cmd` and in four packages under `internal`: `app` (the walk, the version table, and target selection), `gitter` (running Git and applying process timeouts), `retry` (repeating the origin check), and `logger` (zap, and writes from several workers).
+The code lives in `cmd` and in four packages under `internal`: `app` (the workspace inventory and the sync), `gitter` (running Git and applying process timeouts), `retry` (repeating the origin check), and `logger` (zap, and writes from several workers).
 
 `--attempts 3` allows two retries after the first check. `--attempts 1` makes one call and does not start the retry engine. Inside the engine, zero retries means no limit, so a single attempt deliberately skips the engine. Canceling the parent context stops retries at once. A timeout of one Git command is retried while that parent context is still alive.
 
 ```bash
-./release-align -n -j 8 -l debug
+./release-align --workspace ./mailion.workspace.json -n -j 8 -l debug
 ./release-align -v
 ./release-align completion bash > release-align-completion.bash
 ```

@@ -42,13 +42,21 @@ func TestWorkspaceReportsEveryMissingPath(t *testing.T) {
 	f := setup(t)
 	head := git(t, f.repo, "rev-parse", "HEAD")
 	projects := make([]*ProjectSpec, 60)
-	projects[0] = &ProjectSpec{Path: "group/repo with spaces"}
-
-	for i := 1; i < len(projects); i++ {
-		projects[i] = &ProjectSpec{Path: fmt.Sprintf("missing/repo-%02d", i)}
+	projects[0] = &ProjectSpec{
+		Path: "group/repo with spaces",
 	}
 
-	spec := &WorkspaceSpec{SchemaVersion: 1, DefaultBranch: "master", Projects: projects}
+	for i := 1; i < len(projects); i++ {
+		projects[i] = &ProjectSpec{
+			Path: fmt.Sprintf("missing/repo-%02d", i),
+		}
+	}
+
+	spec := &WorkspaceSpec{
+		SchemaVersion: 1,
+		DefaultBranch: "master",
+		Projects:      projects,
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if ExitCodeForWorkspace(err) != 3 || report.ExpectedCount != 60 || report.InventoryCount != 60 || !report.Coverage {

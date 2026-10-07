@@ -17,7 +17,9 @@ func TestTextLogColorsLevelAndListsFiles(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	sink := &plainSyncer{Writer: &buf}
+	sink := &plainSyncer{
+		Writer: &buf,
+	}
 	core := newTextCore(zapcore.InfoLevel, sink, true)
 	log := zap.New(core).Sugar()
 	log.With("repo", "UCS-QA/cap_autotests").Warn(

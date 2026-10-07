@@ -49,7 +49,10 @@ func (c *coreWithLevel) With(fields []zapcore.Field) zapcore.Core {
 // It returns a zap.Option that wraps the existing core in a coreWithLevel with the specified level.
 func WithLevel(lvl zapcore.Level) zap.Option {
 	wrap := func(core zapcore.Core) zapcore.Core {
-		leveled := &coreWithLevel{core, lvl}
+		leveled := &coreWithLevel{
+			core,
+			lvl,
+		}
 
 		return leveled
 	}

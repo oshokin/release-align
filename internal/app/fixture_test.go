@@ -1,8 +1,6 @@
 package app
 
 import (
-	"bytes"
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/oshokin/release-align/internal/logger"
 )
 
 // fixture is the temporary origin, seed, and working copy used by one integration test.
@@ -109,17 +105,6 @@ func setup(t *testing.T) *fixture {
 	f.cfg.FetchTimeout = 5 * time.Second
 
 	return f
-}
-
-// run executes the legacy updater against a fixture.
-func run(t *testing.T, f *fixture, table Manifest) (*Summary, string, error) {
-	t.Helper()
-
-	var b bytes.Buffer
-
-	s, e := Run(logger.ToContext(context.Background(), logger.NewWithWriter(nil, &b)), f.cfg, table)
-
-	return s, b.String(), e
 }
 
 // branch creates and pushes a branch on the fixture remote.

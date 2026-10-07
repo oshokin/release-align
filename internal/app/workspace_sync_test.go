@@ -24,9 +24,18 @@ func TestWorkspaceSyncBlocksMissingRepositoryBeforeCheckout(t *testing.T) {
 		Release:       "Mailion 26.3.0",
 		DefaultBranch: "Release-26.3.0",
 		Projects: []*ProjectSpec{
-			{Path: "group/repo with spaces", Groups: []string{"search"}},
-			{Path: "group/" + second, Groups: []string{"search"}},
-			{Path: "group/missing", Groups: []string{"search"}},
+			{
+				Path:   "group/repo with spaces",
+				Groups: []string{"search"},
+			},
+			{
+				Path:   "group/" + second,
+				Groups: []string{"search"},
+			},
+			{
+				Path:   "group/missing",
+				Groups: []string{"search"},
+			},
 		},
 	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
@@ -61,7 +70,9 @@ func TestWorkspaceSyncBlocksMissingRepositoryBeforeCheckout(t *testing.T) {
 func TestWorkspaceSyncDoesNotFallBackWhenBranchIsAbsent(t *testing.T) {
 	f := setup(t)
 	head := git(t, f.repo, "rev-parse", "HEAD")
-	revision := &RevisionSpec{Branch: "Release-26.3.0"}
+	revision := &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	spec := oneProject(t, "group/repo with spaces", revision)
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
@@ -127,9 +138,16 @@ func TestWorkspaceSelectionKeepsInventory(t *testing.T) {
 		SchemaVersion: 1,
 		DefaultBranch: "Release-26.3.0",
 		Projects: []*ProjectSpec{
-			{Path: "group/repo with spaces", Groups: []string{"search"}},
-			{Path: "group/absent-one"},
-			{Path: "group/absent-two"},
+			{
+				Path:   "group/repo with spaces",
+				Groups: []string{"search"},
+			},
+			{
+				Path: "group/absent-one",
+			},
+			{
+				Path: "group/absent-two",
+			},
 		},
 	}
 	f.cfg.Groups = []string{"search"}
@@ -145,7 +163,7 @@ func TestWorkspaceSelectionKeepsInventory(t *testing.T) {
 func runWorkspace(t *testing.T, f *fixture, spec *WorkspaceSpec, mode string) (*WorkspaceReport, error) {
 	t.Helper()
 
-	buf := &strings.Builder{}
+	buf := new(strings.Builder)
 	log := logger.NewWithWriter(nil, buf)
 	ctx := logger.ToContext(context.Background(), log)
 
@@ -160,7 +178,12 @@ func oneProject(t *testing.T, path string, revision *RevisionSpec) *WorkspaceSpe
 		SchemaVersion: 1,
 		Release:       "test",
 		DefaultBranch: "master",
-		Projects:      []*ProjectSpec{{Path: path, Revision: revision}},
+		Projects: []*ProjectSpec{
+			{
+				Path:     path,
+				Revision: revision,
+			},
+		},
 	}
 }
 

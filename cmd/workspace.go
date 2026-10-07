@@ -12,21 +12,24 @@ import (
 )
 
 // newStatusCommand builds the offline workspace status subcommand.
-func newStatusCommand(cfg *app.Config, envErr error) *cobra.Command {
+func newStatusCommand(cfg *app.Config) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Check a workspace locally without fetching or switching",
 		Long:  "status reads cached refs and worktrees. It does not contact a remote. Workspace mode uses exact targets and fails when selected projects are not ready.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.NoArgs(cmd, args); err != nil {
-				return &commandError{code: exitUsage, cause: err}
+				return &commandError{
+					code:  exitUsage,
+					cause: err,
+				}
 			}
 
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if envErr != nil {
-				return &commandError{code: exitUsage, cause: envErr}
+			if err := applyCommandEnv(cmd, cfg); err != nil {
+				return usageCommand(cmd, cfg, app.ModeStatus, err)
 			}
 
 			return runWorkspaceCommand(cmd, cfg, app.ModeStatus)
@@ -35,7 +38,10 @@ func newStatusCommand(cfg *app.Config, envErr error) *cobra.Command {
 		SilenceErrors: true,
 	}
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return &commandError{code: exitUsage, cause: err}
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
 	})
 	bindFlags(command, cfg)
 
@@ -48,11 +54,7 @@ func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error
 		return usageCommand(cmd, cfg, mode, err)
 	}
 
-	if err := cfg.ValidateWorkspace(
-		mode,
-		cmd.Flags().Changed("depth"),
-		cmd.Flags().Changed("versions-file"),
-	); err != nil {
+	if err := cfg.ValidateWorkspace(mode); err != nil {
 		return usageCommand(cmd, cfg, mode, err)
 	}
 
@@ -76,7 +78,10 @@ func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error
 // usageCommand returns a usage error and writes a JSON envelope when requested.
 func usageCommand(cmd *cobra.Command, cfg *app.Config, mode string, err error) error {
 	if cfg == nil || !cfg.JSON() {
-		return &commandError{code: exitUsage, cause: err}
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
 	}
 
 	report := &app.WorkspaceReport{
@@ -94,10 +99,16 @@ func usageCommand(cmd *cobra.Command, cfg *app.Config, mode string, err error) e
 
 	writeErr := app.WriteWorkspaceReport(cmd.OutOrStdout(), report)
 	if writeErr != nil {
-		return &commandError{code: exitFailed, cause: writeErr}
+		return &commandError{
+			code:  exitFailed,
+			cause: writeErr,
+		}
 	}
 
-	return &commandError{code: exitUsage, cause: err}
+	return &commandError{
+		code:  exitUsage,
+		cause: err,
+	}
 }
 
 // executeWorkspace runs the workspace and writes the report.
@@ -126,7 +137,10 @@ func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSp
 	}
 
 	if writeErr != nil {
-		return &commandError{code: exitFailed, cause: writeErr}
+		return &commandError{
+			code:  exitFailed,
+			cause: writeErr,
+		}
 	}
 
 	app.LogWorkspaceReport(ctx, report, !cfg.JSON())
@@ -146,12 +160,21 @@ func mapWorkspaceError(err error) error {
 
 	code := app.ExitCodeForWorkspace(err)
 	if code == exitNotReady {
-		return &commandError{code: exitNotReady, cause: err}
+		return &commandError{
+			code:  exitNotReady,
+			cause: err,
+		}
 	}
 
 	if code == exitUsage {
-		return &commandError{code: exitUsage, cause: err}
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
 	}
 
-	return &commandError{code: exitFailed, cause: err}
+	return &commandError{
+		code:  exitFailed,
+		cause: err,
+	}
 }

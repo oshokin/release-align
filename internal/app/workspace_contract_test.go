@@ -58,11 +58,24 @@ func TestWorkspacePathsAndSelections(t *testing.T) {
 			t.Fatalf("accepted %q", p)
 		}
 	}
-	w := &WorkspaceSpec{SchemaVersion: 1, DefaultBranch: "main", Projects: []*ProjectSpec{
-		{Path: "search/mailbek", Groups: []string{"search"}},
-		{Path: "search/pasifae", Groups: []string{"search"}},
-		{Path: "storage/dos", Groups: []string{"storage"}},
-	}}
+	w := &WorkspaceSpec{
+		SchemaVersion: 1,
+		DefaultBranch: "main",
+		Projects: []*ProjectSpec{
+			{
+				Path:   "search/mailbek",
+				Groups: []string{"search"},
+			},
+			{
+				Path:   "search/pasifae",
+				Groups: []string{"search"},
+			},
+			{
+				Path:   "storage/dos",
+				Groups: []string{"storage"},
+			},
+		},
+	}
 	selected, err := w.SelectProjects([]string{"storage/dos", "storage/dos"}, []string{"search"})
 
 	if err != nil || len(selected) != 3 || selected[0].Path != "search/mailbek" {
@@ -83,70 +96,119 @@ func TestWorkspaceReportRefusesFalseSuccess(t *testing.T) {
 	oid := strings.Repeat("a", 40)
 	makeRow := func() *WorkspaceRow {
 		return &WorkspaceRow{
-			Path:     "a/b",
-			Outcome:  "updated",
-			Expected: &ResolvedRevision{Kind: "branch", Value: "release", OID: oid},
-			Actual:   &ObservedState{Head: oid, Branch: "release", Verified: true},
+			Path:    "a/b",
+			Outcome: "updated",
+			Expected: &ResolvedRevision{
+				Kind:  "branch",
+				Value: "release",
+				OID:   oid,
+			},
+			Actual: &ObservedState{
+				Head:     oid,
+				Branch:   "release",
+				Verified: true,
+			},
 		}
 	}
 	tests := []struct {
 		name string
 		edit func(*WorkspaceRow)
 	}{
-		{"dirty", func(r *WorkspaceRow) { r.Actual.Dirty = true }},
-		{"wrong branch", func(r *WorkspaceRow) { r.Actual.Branch = "master" }},
-		{"wrong sha", func(r *WorkspaceRow) { r.Actual.Head = strings.Repeat("b", 40) }},
-		{"unverified", func(r *WorkspaceRow) { r.Actual.Verified = false }},
-		{"operation", func(r *WorkspaceRow) { r.Actual.Operation = "MERGE_HEAD" }},
-		{"failed", func(r *WorkspaceRow) { r.ReasonCode = "git_failed" }},
-		{"stash left", func(r *WorkspaceRow) { r.StashOID = strings.Repeat("c", 40) }},
-		{"no expected", func(r *WorkspaceRow) { r.Expected = nil }},
+		{
+			"dirty",
+			func(r *WorkspaceRow) { r.Actual.Dirty = true },
+		},
+		{
+			"wrong branch",
+			func(r *WorkspaceRow) { r.Actual.Branch = "master" },
+		},
+		{
+			"wrong sha",
+			func(r *WorkspaceRow) { r.Actual.Head = strings.Repeat("b", 40) },
+		},
+		{
+			"unverified",
+			func(r *WorkspaceRow) { r.Actual.Verified = false },
+		},
+		{
+			"operation",
+			func(r *WorkspaceRow) { r.Actual.Operation = "MERGE_HEAD" },
+		},
+		{
+			"failed",
+			func(r *WorkspaceRow) { r.ReasonCode = "git_failed" },
+		},
+		{
+			"stash left",
+			func(r *WorkspaceRow) { r.StashOID = strings.Repeat("c", 40) },
+		},
+		{
+			"no expected",
+			func(r *WorkspaceRow) { r.Expected = nil },
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			row := makeRow()
 			tc.edit(row)
-			r := &WorkspaceReport{Rows: []*WorkspaceRow{row}}
+			r := &WorkspaceReport{
+				Rows: []*WorkspaceRow{row},
+			}
 			if err := r.Finalize([]string{"a/b"}); err != nil || r.Ready {
 				t.Fatalf("false readiness: %+v %v", r, err)
 			}
 		})
 	}
-	r := &WorkspaceReport{Rows: []*WorkspaceRow{makeRow()}}
+	r := &WorkspaceReport{
+		Rows: []*WorkspaceRow{makeRow()},
+	}
 	if err := r.Finalize(
 		[]string{"a/b", "a/missing"},
 	); err != nil || r.Ready || len(r.Rows) != 2 ||
 		r.Rows[1].ReasonCode != "not_observed" {
 		t.Fatalf("missing repository disappeared: %+v %v", r, err)
 	}
-	r = &WorkspaceReport{DryRun: true, Rows: []*WorkspaceRow{makeRow()}}
+	r = &WorkspaceReport{
+		DryRun: true,
+		Rows:   []*WorkspaceRow{makeRow()},
+	}
 	if err := r.Finalize([]string{"a/b"}); err != nil || r.Ready {
 		t.Fatal("dry-run reported ready")
 	}
-	r = &WorkspaceReport{Rows: []*WorkspaceRow{makeRow(), makeRow()}}
+	r = &WorkspaceReport{
+		Rows: []*WorkspaceRow{makeRow(), makeRow()},
+	}
 	if err := r.Finalize([]string{"a/b"}); err == nil {
 		t.Fatal("duplicate report row accepted")
 	}
-	r = &WorkspaceReport{}
+	r = new(WorkspaceReport)
 	if err := r.Finalize(nil); err != nil || r.Ready {
 		t.Fatal("empty selection reported ready")
 	}
 }
 
-// TestWorkspaceJSONAndFreezeRoundTrip verifies that a report and a frozen workspace survive a JSON round trip.
-func TestWorkspaceJSONAndFreezeRoundTrip(t *testing.T) {
+// TestWorkspaceJSONRoundTrip verifies that a report survives a JSON round trip.
+func TestWorkspaceJSONRoundTrip(t *testing.T) {
 	oid := strings.Repeat("a", 40)
 	r := &WorkspaceReport{
 		Mode:      "status",
 		Freshness: "cached",
 		Rows: []*WorkspaceRow{
 			{
-				Path:     "a/b",
-				Outcome:  "observed",
-				Expected: &ResolvedRevision{Kind: "branch", Value: "release", OID: oid},
-				Actual:   &ObservedState{Head: oid, Branch: "release", Verified: true},
-				Message:  strings.Repeat("detail\n", 1000),
+				Path:    "a/b",
+				Outcome: "observed",
+				Expected: &ResolvedRevision{
+					Kind:  "branch",
+					Value: "release",
+					OID:   oid,
+				},
+				Actual: &ObservedState{
+					Head:     oid,
+					Branch:   "release",
+					Verified: true,
+				},
+				Message: strings.Repeat("detail\n", 1000),
 			},
 		},
 	}
@@ -165,22 +227,5 @@ func TestWorkspaceJSONAndFreezeRoundTrip(t *testing.T) {
 
 	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil || decoded.Rows[0].Message != r.Rows[0].Message {
 		t.Fatal("JSON truncated or invalid", err)
-	}
-	frozen, err := FrozenWorkspace(r)
-	if err != nil || frozen.Projects[0].Revision.Commit != oid || frozen.DefaultBranch != "" {
-		t.Fatal(frozen, err)
-	}
-
-	b, err := json.Marshal(frozen)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err = DecodeWorkspace(bytes.NewReader(b)); err != nil {
-		t.Fatal(err)
-	}
-	r.Rows[0].Actual.Dirty = true
-	if _, err = FrozenWorkspace(r); err == nil {
-		t.Fatal("freeze trusted stale ready flag")
 	}
 }

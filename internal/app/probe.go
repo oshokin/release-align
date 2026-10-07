@@ -37,7 +37,9 @@ func (r *runner) probe(ctx context.Context, repo *repository) error {
 
 		err := r.git.Probe(ctx, repo.path, r.cfg.ProbeTimeout)
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-			return &probeTimeoutError{cause: err}
+			return &probeTimeoutError{
+				cause: err,
+			}
 		}
 
 		return err

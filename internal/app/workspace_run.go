@@ -133,8 +133,11 @@ func runWorkspaceItems(
 	}
 
 	runner := &runner{
-		cfg:                     cfg,
-		git:                     &gitter.Client{LocalTimeout: cfg.LocalTimeout},
+		cfg: cfg,
+		git: &gitter.Client{
+			LocalTimeout: cfg.LocalTimeout,
+			NoLazyFetch:  mode == ModeStatus || cfg.DryRun,
+		},
 		beforeWorkspaceCheckout: cfg.beforeCheckout,
 	}
 

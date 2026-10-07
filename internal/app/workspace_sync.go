@@ -52,23 +52,21 @@ func (r *runner) syncWorkspace(ctx context.Context, items []*workspaceItem) (str
 
 // workspacePreflight probes each distinct origin before any fetch.
 func (r *runner) workspacePreflight(ctx context.Context, items []*workspaceItem) error {
-	checked := map[string]error{}
+	checked := map[string]struct{}{}
 
 	for _, item := range items {
 		if item.repo == nil || !rowPending(item.row) {
 			continue
 		}
 
-		if previous, seen := checked[item.repo.endpoint]; seen {
-			r.noteProbe(ctx, items, item, previous)
-
+		if _, seen := checked[item.repo.endpoint]; seen {
 			continue
 		}
 
 		err := r.probe(ctx, item.repo)
-		checked[item.repo.endpoint] = err
-
 		if err == nil {
+			checked[item.repo.endpoint] = struct{}{}
+
 			continue
 		}
 

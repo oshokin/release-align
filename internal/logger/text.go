@@ -32,7 +32,7 @@ func (c *textCore) With(fields []zapcore.Field) zapcore.Core {
 	copied := c.clone()
 	copied.fields = append(copied.fields, fields...)
 
-	return &copied
+	return copied
 }
 
 // Check adds this core when the entry level is enabled.
@@ -61,9 +61,10 @@ func (c *textCore) Sync() error {
 	return nil
 }
 
-// clone copies the core and its fields. The writer and the level stay the same sink.
-func (c *textCore) clone() textCore {
-	return textCore{
+// clone returns a new core and a copied field slice. The writer and the level stay the same sink.
+// Values stored in zapcore.Field.Interface are shared with the original core.
+func (c *textCore) clone() *textCore {
+	return &textCore{
 		level:  c.level,
 		out:    c.out,
 		color:  c.color,
@@ -73,7 +74,11 @@ func (c *textCore) clone() textCore {
 
 // newTextCore builds a locked text core.
 func newTextCore(level zapcore.LevelEnabler, out zapcore.WriteSyncer, color bool) zapcore.Core {
-	return &textCore{level: level, out: zapcore.Lock(out), color: color}
+	return &textCore{
+		level: level,
+		out:   zapcore.Lock(out),
+		color: color,
+	}
 }
 
 // formatLine renders time, level, repository, message, and any other fields.
