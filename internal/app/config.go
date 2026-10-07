@@ -30,6 +30,12 @@ type Config struct {
 	FetchTimeout time.Duration
 	// LocalTimeout limits git commands that do not talk to a remote.
 	LocalTimeout time.Duration
+	// CloneTimeout limits one git clone.
+	CloneTimeout time.Duration
+	// ArchiveTimeout limits one repository export, including its ZIP copy.
+	ArchiveTimeout time.Duration
+	// timeoutLocks records values set by an explicit flag or environment variable.
+	timeoutLocks *TimeoutLocks
 	// WorkspaceFile is the project inventory. It is required.
 	WorkspaceFile string
 	// Repositories selects workspace paths. Empty selects every project, unless Groups is set.
@@ -85,15 +91,17 @@ func DefaultConfig() *Config {
 			"src",
 			"gitlab.stageoffice.ru",
 		),
-		Branch:       "master",
-		Jobs:         4,
-		Attempts:     3,
-		LogLevel:     "info",
-		ProbeTimeout: 5 * time.Second,
-		RetryDelay:   time.Second,
-		FetchTimeout: 60 * time.Second,
-		LocalTimeout: 40 * time.Second,
-		Output:       outputText,
+		Branch:         "master",
+		Jobs:           4,
+		Attempts:       3,
+		LogLevel:       "info",
+		ProbeTimeout:   5 * time.Second,
+		RetryDelay:     time.Second,
+		FetchTimeout:   60 * time.Second,
+		LocalTimeout:   40 * time.Second,
+		CloneTimeout:   15 * time.Minute,
+		ArchiveTimeout: 15 * time.Minute,
+		Output:         outputText,
 	}
 }
 

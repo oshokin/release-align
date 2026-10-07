@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +15,16 @@ type workspaceCloneCommand struct {
 	options *app.WorkspaceCloneOptions
 }
 
+const (
+	// cloneOutputText is the human-readable clone report.
+	cloneOutputText = "text"
+	// cloneOutputJSON is the machine-readable clone report.
+	cloneOutputJSON = "json"
+)
+
+// errCloneOutput means --output is neither text nor json.
+var errCloneOutput = errors.New("output must be text or json")
+
 // newWorkspaceCloneCommand downloads missing projects and registers them.
 func newWorkspaceCloneCommand() *cobra.Command {
 	defaults := app.DefaultConfig()
@@ -25,7 +34,7 @@ func newWorkspaceCloneCommand() *cobra.Command {
 		RetryDelay:   defaults.RetryDelay,
 		FetchTimeout: defaults.FetchTimeout,
 		LocalTimeout: defaults.LocalTimeout,
-		CloneTimeout: 15 * time.Minute,
+		CloneTimeout: defaults.CloneTimeout,
 		Output:       defaults.Output,
 	}
 	handler := &workspaceCloneCommand{
@@ -74,8 +83,39 @@ func newWorkspaceCloneCommand() *cobra.Command {
 
 // run lists the saved GitLab scope, clones what is missing, and updates the workspace file.
 func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
+	if c.options.Output != cloneOutputText && c.options.Output != cloneOutputJSON {
+		return &commandError{
+			code:  exitUsage,
+			cause: errCloneOutput,
+		}
+	}
+
+	cfg := cloneEnvConfig(c.options)
+	if err := applyCommandEnv(command, cfg); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	c.options.Attempts = cfg.Attempts
+	c.options.ProbeTimeout = cfg.ProbeTimeout
+	c.options.RetryDelay = cfg.RetryDelay
+	c.options.FetchTimeout = cfg.FetchTimeout
+	c.options.LocalTimeout = cfg.LocalTimeout
+	c.options.CloneTimeout = cfg.CloneTimeout
+
+	c.options.SetTimeoutLocks(timeoutLocks(command))
 	c.options.SetProgress(command.ErrOrStderr())
 	report, err := app.CloneWorkspace(command.Context(), c.options)
+
+	if err != nil && report != nil && report.Error == "" {
+		report.Error = err.Error()
+	}
+
+	if c.options.Output == cloneOutputText && app.ExitCodeForWorkspace(err) == exitUsage {
+		return cloneCommandError(err)
+	}
 
 	writeErr := writeCloneReport(command, c.options, report)
 	if writeErr != nil {
@@ -88,9 +128,23 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 	return cloneCommandError(err)
 }
 
+// cloneEnvConfig carries clone timeouts into the shared environment reader and back.
+func cloneEnvConfig(opts *app.WorkspaceCloneOptions) *app.Config {
+	cfg := app.DefaultConfig()
+	cfg.Attempts = opts.Attempts
+	cfg.ProbeTimeout = opts.ProbeTimeout
+	cfg.RetryDelay = opts.RetryDelay
+	cfg.FetchTimeout = opts.FetchTimeout
+	cfg.LocalTimeout = opts.LocalTimeout
+	cfg.CloneTimeout = opts.CloneTimeout
+	cfg.Output = opts.Output
+
+	return cfg
+}
+
 // writeCloneReport writes JSON to stdout or the text summary.
 func writeCloneReport(command *cobra.Command, opts *app.WorkspaceCloneOptions, report *app.CloneReport) error {
-	if opts.Output == "json" {
+	if opts.Output == cloneOutputJSON {
 		return app.WriteCloneReport(command.OutOrStdout(), report)
 	}
 

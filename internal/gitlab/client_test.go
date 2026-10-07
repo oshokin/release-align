@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -211,30 +212,30 @@ func TestListProjectsAuthIsNotRetried(t *testing.T) {
 }
 
 func TestListProjectsRetriesTransientThenStops(t *testing.T) {
-	var first, second atomic.Int32
+	synctest.Test(t, func(t *testing.T) {
+		var first, second int
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v4/groups/other/projects" {
-			second.Add(1)
-		} else {
-			first.Add(1)
+		client := clockClient(5*time.Second, 3, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v4/groups/other/projects" {
+				second++
+			} else {
+				first++
+			}
+
+			http.Error(w, "down", http.StatusBadGateway)
+		})
+		client.RetryDelay = time.Millisecond
+		started := time.Now()
+
+		_, err := client.ListProjects(t.Context(), []string{"mailion", "other"})
+		if err == nil {
+			t.Fatal("outage succeeded")
 		}
 
-		http.Error(w, "down", http.StatusBadGateway)
-	}))
-	t.Cleanup(server.Close)
-
-	client := testClient(server.URL, server.Client())
-	client.Attempts = 3
-	client.RetryDelay = time.Millisecond
-
-	if _, err := client.ListProjects(context.Background(), []string{"mailion", "other"}); err == nil {
-		t.Fatal("outage succeeded")
-	}
-
-	if first.Load() != 3 || second.Load() != 0 {
-		t.Fatalf("first %d second %d", first.Load(), second.Load())
-	}
+		if first != 3 || second != 0 || time.Since(started) != 2*time.Millisecond {
+			t.Fatalf("first %d second %d elapsed %s err %v", first, second, time.Since(started), err)
+		}
+	})
 }
 
 func TestListProjectsDoesNotFollowRedirect(t *testing.T) {

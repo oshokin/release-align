@@ -186,6 +186,16 @@ var (
 	errClonePublish = errors.New("workspace file was not updated; downloaded clones were kept")
 	// errCloneAlign means a new row would have no branch to align later.
 	errCloneAlign = errors.New("new project needs default_branch or an explicit revision")
+	// errArchiveFile means --file was omitted.
+	errArchiveFile = errors.New("archive file is required")
+	// errArchiveEmpty means the selection contains no repositories.
+	errArchiveEmpty = errors.New("archive selection is empty")
+	// errArchiveReserved means a project path uses the manifest directory.
+	errArchiveReserved = errors.New("project path collides with _release-align")
+	// errArchiveFailed means the final ZIP was not published.
+	errArchiveFailed = errors.New("archive was not published")
+	// errArchiveEntry means a ZIP entry is unsafe or collides with another entry.
+	errArchiveEntry = errors.New("git archive entry is not a safe relative path")
 )
 
 // gitTextError wraps a Git message as a workspace runtime error.

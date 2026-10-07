@@ -3,7 +3,7 @@ package app
 import (
 	"fmt"
 	"io"
-	"strconv"
+	"runtime"
 	"strings"
 )
 
@@ -14,6 +14,9 @@ type catalogSection struct {
 	// paths are the project paths for this heading. An empty list is omitted.
 	paths []string
 }
+
+// goosWindows selects PowerShell quoting.
+const goosWindows = "windows"
 
 // WriteRemoteInventory writes the plain-text catalog section.
 func WriteRemoteInventory(w io.Writer, cfg *Config, report *WorkspaceReport) error {
@@ -190,7 +193,9 @@ func writeNextCommands(w io.Writer, cfg *Config, catalog *RemoteCatalog) error {
 
 	_, err := fmt.Fprintf(
 		w,
-		"Next: clone missing projects and include the visible scope in this workspace:\n  %s\nOr choose a project:\n  %s\n",
+		"Next: clone missing projects and include the visible scope in this workspace.\n"+
+			"%s\n  %s\nOr choose a project:\n  %s\n",
+		shellHint(),
 		cloneAllCommand(cfg),
 		cloneOneCommand(cfg, firstAttention(catalog)),
 	)
@@ -241,11 +246,30 @@ func inventoryHost(raw string) string {
 	return host
 }
 
-// shellArg quotes a command argument when it is not a plain token.
-func shellArg(value string) string {
-	if value == "" || strings.ContainsAny(value, " \t\n\"'\\$") {
-		return strconv.Quote(value)
+// shellHint names the shell the suggested commands are quoted for.
+func shellHint() string {
+	if runtime.GOOS == goosWindows {
+		return "PowerShell:"
 	}
 
-	return value
+	return "POSIX shell:"
+}
+
+// shellArg quotes one argument for the shell named by shellHint.
+func shellArg(value string) string {
+	if runtime.GOOS == goosWindows {
+		return quotePowerShell(value)
+	}
+
+	return quotePOSIX(value)
+}
+
+// quotePOSIX preserves one literal argument for a POSIX shell.
+func quotePOSIX(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+// quotePowerShell preserves one literal argument for PowerShell single quotes.
+func quotePowerShell(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

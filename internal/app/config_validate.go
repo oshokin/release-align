@@ -41,7 +41,8 @@ func (c *Config) Validate() error {
 		return errAttemptsRange
 	}
 
-	if c.ProbeTimeout <= 0 || c.FetchTimeout <= 0 || c.LocalTimeout <= 0 || c.RetryDelay < 0 {
+	if c.ProbeTimeout <= 0 || c.FetchTimeout <= 0 || c.LocalTimeout <= 0 ||
+		c.CloneTimeout <= 0 || c.ArchiveTimeout <= 0 || c.RetryDelay < 0 {
 		return errTimeoutRange
 	}
 

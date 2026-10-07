@@ -39,6 +39,8 @@ type WorkspaceCloneOptions struct {
 	hooks *remoteHooks
 	// progress receives lines that must stay off JSON stdout.
 	progress io.Writer
+	// timeoutLocks records durations already chosen by a flag or the environment.
+	timeoutLocks *TimeoutLocks
 }
 
 // CloneReport is the single JSON document for workspace clone.
@@ -121,6 +123,15 @@ type clonePick struct {
 	paths []string
 	// skipped counts projects left out because they have no default branch.
 	skipped int
+}
+
+// SetTimeoutLocks records durations already chosen by a flag or the environment.
+func (o *WorkspaceCloneOptions) SetTimeoutLocks(locks *TimeoutLocks) {
+	if o == nil {
+		return
+	}
+
+	o.timeoutLocks = locks
 }
 
 // SetProgress records where catalog progress is written.
@@ -245,6 +256,11 @@ func lockClone(base, path string) (*cloneHold, error) {
 // locked lists GitLab, checks every selected path, then clones what is missing.
 func (j *cloneJob) locked(ctx context.Context) (*CloneReport, error) {
 	j.spec = j.document.spec
+
+	if err := applyCloneTimeouts(j.opts, j.spec); err != nil {
+		return j.report, err
+	}
+
 	if err := prepareCloneSource(j.opts, j.spec); err != nil {
 		return j.report, err
 	}

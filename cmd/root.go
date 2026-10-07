@@ -151,7 +151,12 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 	)
 	flags.DurationVar(&cfg.ProbeTimeout, "probe-timeout", cfg.ProbeTimeout, "timeout per git ls-remote probe")
 	flags.DurationVar(&cfg.RetryDelay, "retry-delay", cfg.RetryDelay, "delay between failed network probes")
-	flags.DurationVar(&cfg.FetchTimeout, "fetch-timeout", cfg.FetchTimeout, "timeout per fetch")
+	flags.DurationVar(
+		&cfg.FetchTimeout,
+		"fetch-timeout",
+		cfg.FetchTimeout,
+		"timeout per fetch and the GitLab catalog budget",
+	)
 	flags.DurationVar(&cfg.LocalTimeout, "local-timeout", cfg.LocalTimeout, "timeout per local Git command")
 }
 

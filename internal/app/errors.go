@@ -13,6 +13,8 @@ var (
 	errAttemptsRange = errors.New("attempts must be between 1 and 10 (total attempts, not extra retries)")
 	// errTimeoutRange rejects a non-positive timeout or a negative retry delay.
 	errTimeoutRange = errors.New("timeouts must be positive; retry delay must not be negative")
+	// errWorkspaceTimeout rejects a saved duration that is empty, zero, negative, or not a Go duration.
+	errWorkspaceTimeout = errors.New("workspace timeout must be a positive Go duration")
 	// errInvalidBranch rejects an empty branch name or one that looks like a flag.
 	errInvalidBranch = errors.New("invalid release branch")
 	// errInvalidLogLevel rejects a name zap cannot parse.

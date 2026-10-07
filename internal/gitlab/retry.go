@@ -8,9 +8,27 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/oshokin/release-align/internal/retry"
 )
+
+// gitlabDelay is the pause for one withRetry call. It is not stored on Client.
+type gitlabDelay struct {
+	// configured is Client.RetryDelay.
+	configured time.Duration
+	// server is the latest Retry-After value. It is cleared at the start of each attempt.
+	server time.Duration
+}
+
+// Delay returns the longer of the configured pause and Retry-After.
+func (d *gitlabDelay) Delay(uint64) time.Duration {
+	if d == nil {
+		return 0
+	}
+
+	return max(d.configured, d.server)
+}
 
 // withRetry runs op at most Attempts times. Attempts counts the first try.
 func (c *Client) withRetry(ctx context.Context, op func(context.Context) error) error {
@@ -20,13 +38,26 @@ func (c *Client) withRetry(ctx context.Context, op func(context.Context) error) 
 		return op(ctx)
 	}
 
+	wait := &gitlabDelay{
+		configured: c.RetryDelay,
+	}
 	cfg := &retry.EngineConfig{
 		MaxRetries:  uint64(attempts - 1),
-		DelayPolicy: retry.NewRandomRangePolicy(c.RetryDelay, c.RetryDelay),
+		DelayPolicy: wait,
 		IsRetryable: retryableGitLab,
 	}
+	wrapped := func(ctx context.Context) error {
+		wait.server = 0
+		err := op(ctx)
 
-	return retry.Do(ctx, cfg, op)
+		if status, ok := errors.AsType[*statusError](err); ok {
+			wait.server = status.wait
+		}
+
+		return err
+	}
+
+	return retry.Do(ctx, cfg, wrapped)
 }
 
 // retryableGitLab allows another try for a timeout, a dropped connection, 429, or 5xx.

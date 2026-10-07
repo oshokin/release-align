@@ -244,14 +244,15 @@ func (d *remoteDiff) targetExists(path string) bool {
 }
 
 // caseFolding probes the base directory. A missing base is treated as case-sensitive.
-func (d *remoteDiff) caseFolding() bool {
+// An unreadable base is an error so clone does not assume the volume is case-sensitive.
+func (d *remoteDiff) caseFolding() (bool, error) {
 	if d.base == "" {
-		return false
+		return false, nil
 	}
 
-	probe, err := os.CreateTemp(d.base, ".release-align-case-*")
+	probe, err := os.CreateTemp(d.base, ".release-align-case-*-a")
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	name := probe.Name()
@@ -263,31 +264,27 @@ func (d *remoteDiff) caseFolding() bool {
 
 	_, err = os.Lstat(foldProbe(name))
 
-	return err == nil
+	return err == nil, nil
 }
 
-// foldProbe returns the same path with the final character's case flipped.
+// foldProbe returns the same path with one letter's case flipped.
 func foldProbe(path string) string {
-	if path == "" {
-		return path
+	buf := []byte(path)
+
+	for i := len(buf) - 1; i >= 0; i-- {
+		switch {
+		case buf[i] >= 'a' && buf[i] <= 'z':
+			buf[i] -= 'a' - 'A'
+
+			return string(buf)
+		case buf[i] >= 'A' && buf[i] <= 'Z':
+			buf[i] += 'a' - 'A'
+
+			return string(buf)
+		}
 	}
 
-	last := path[len(path)-1]
-	flipped := last
-
-	if last >= 'a' && last <= 'z' {
-		flipped = last - ('a' - 'A')
-	}
-
-	if last >= 'A' && last <= 'Z' {
-		flipped = last + ('a' - 'A')
-	}
-
-	if flipped == last {
-		return path + "A"
-	}
-
-	return path[:len(path)-1] + string(flipped)
+	return path
 }
 
 // emptyCatalog returns the arrays required in a checked document.

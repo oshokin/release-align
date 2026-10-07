@@ -28,6 +28,8 @@ type statusError struct {
 	status int
 	// path is the request path, without the token.
 	path string
+	// wait is the Retry-After pause for this response. Zero means the configured delay.
+	wait time.Duration
 }
 
 // apiEndpoint is one groups API URL and the path written to the log.
@@ -50,6 +52,7 @@ func (e *statusError) Error() string {
 // listGroup reads one group until a short page or an empty X-Next-Page.
 func (c *Client) listGroup(ctx context.Context, group string) ([]*Project, error) {
 	projects := make([]*Project, 0)
+	seen := make(map[int]struct{})
 	page := 1
 	limit := c.MaxPages
 
@@ -68,6 +71,10 @@ func (c *Client) listGroup(ctx context.Context, group string) ([]*Project, error
 
 		result, err := c.fetchPage(ctx, group, page)
 		if err != nil {
+			return nil, err
+		}
+
+		if err = newProjectIDs(seen, result.projects); err != nil {
 			return nil, err
 		}
 
@@ -152,7 +159,6 @@ func (c *Client) projectURL(group string, page int) (*apiEndpoint, error) {
 		return nil, errGitLabStatus
 	}
 
-	path := "/api/v4/groups/" + url.PathEscape(group) + "/projects"
 	values := url.Values{}
 	values.Set("include_subgroups", "true")
 	values.Set("with_shared", "false")
@@ -161,11 +167,12 @@ func (c *Client) projectURL(group string, page int) (*apiEndpoint, error) {
 	values.Set("sort", "asc")
 	values.Set("per_page", strconv.Itoa(projectsPerPage))
 	values.Set("page", strconv.Itoa(page))
-	base.Path = path
+	base.Path = "/api/v4/groups/" + group + "/projects"
+	base.RawPath = "/api/v4/groups/" + url.PathEscape(group) + "/projects"
 	base.RawQuery = values.Encode()
 	endpoint := &apiEndpoint{
 		raw:  base.String(),
-		path: path,
+		path: base.RawPath,
 	}
 
 	return endpoint, nil
@@ -252,10 +259,37 @@ func (c *Client) rateLimit(ctx context.Context, resp *http.Response, path string
 		return errGitLabRateLimited
 	}
 
-	return &statusError{
+	failure := &statusError{
 		status: resp.StatusCode,
 		path:   path,
+		wait:   wait,
 	}
+
+	return failure
+}
+
+// newProjectIDs rejects a non-empty page that repeats only IDs already seen in this group.
+func newProjectIDs(seen map[int]struct{}, projects []*Project) error {
+	fresh := 0
+
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+
+		if _, ok := seen[project.ID]; ok {
+			continue
+		}
+
+		seen[project.ID] = struct{}{}
+		fresh++
+	}
+
+	if len(projects) > 0 && fresh == 0 {
+		return errGitLabPage
+	}
+
+	return nil
 }
 
 // retryAfter parses a delay. An unusable value falls back to one second.

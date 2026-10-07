@@ -21,6 +21,10 @@ func (w *WorkspaceSpec) Validate() error {
 		}
 	}
 
+	if err := w.Timeouts.Validate(); err != nil {
+		return err
+	}
+
 	branch := &RevisionSpec{
 		Branch: w.DefaultBranch,
 	}

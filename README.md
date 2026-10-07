@@ -60,12 +60,14 @@ release-align --workspace ./mailion.workspace.json --group search --repo storage
 | `--attempts` | | `3` | `ATTEMPTS` | Origin checks in total, including the first, from 1 to 10. `1` does not start the retry engine |
 | `--probe-timeout` | | `5s` | `PROBE_TIMEOUT` | Timeout of one `git ls-remote` |
 | `--retry-delay` | | `1s` | `RETRY_DELAY` | Pause between failed origin checks. `0` is allowed |
-| `--fetch-timeout` | | `1m` | `FETCH_TIMEOUT` | Timeout of one fetch |
+| `--fetch-timeout` | | `1m` | `FETCH_TIMEOUT` | Timeout of one fetch. Also the budget for one GitLab catalog read |
 | `--local-timeout` | | `40s` | `LOCAL_TIMEOUT` | Timeout of one local Git command |
 | `--output` | | `text` | | `text` or `json` |
 | `--remote` | | `false` | | After the local operation, compare `gitlab.groups` with the disk and the workspace. Not combined with `--dry-run` |
 
 A duration needs a Go unit on the command line and in the environment: `5s`, `750ms`, `1m`. `DRY_RUN` accepts `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, and `False`.
+
+An explicit flag wins over the environment variable, which wins over `timeouts` in the workspace, which wins over the built-in default. `workspace clone` reads `CLONE_TIMEOUT` (`--clone-timeout`, default `15m`). `workspace archive` reads `ARCHIVE_TIMEOUT` (`--archive-timeout`, default `15m` for one repository). A command that does not have the matching flag ignores that variable. `--retry-delay 0` is allowed. A timeout of `0` is not. Suggested commands are quoted for a POSIX shell, or for PowerShell when the program is running on Windows.
 
 ### release-align version
 
@@ -194,7 +196,7 @@ Fetch may update remote-tracking refs even when the worktrees stay put; the repo
 
 `status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created by `status` or `sync`. Nothing is pushed, tagged, or built.
 
-An optional `gitlab` object names the server scope. `gitlab.groups` are GitLab namespace paths, including subgroups. `projects[].groups` stay the local selection labels. One is not derived from the other. `clone_protocol` is `ssh` or `https`; an empty value means `ssh`. The API token is `GITLAB_TOKEN` in the environment, sent as `Private-Token`. It is not stored in the file, the command line, or a clone URL. A file with `gitlab` will not load in an older binary. A file without it still loads. `workspace init --gitlab-url` and repeatable `--gitlab-group` only save that object. They do not call the API.
+An optional `gitlab` object names the server scope. `gitlab.groups` are GitLab namespace paths, including subgroups. `projects[].groups` stay the local selection labels. One is not derived from the other. `clone_protocol` is `ssh` or `https`; an empty value means `ssh`. The API token is `GITLAB_TOKEN` in the environment, sent as `Private-Token`. It is not stored in the file, the command line, or a clone URL. A file with `gitlab` or `timeouts` will not load in an older binary. A file without those objects still loads. `timeouts` stores only the overrides you set (`probe`, `fetch`, `local`, `clone`, `archive`). Omitted fields keep the program default. An empty string, `0`, a negative duration, or a bare number is rejected. `workspace init --gitlab-url` and repeatable `--gitlab-group` only save that object. They do not call the API.
 
 ```bash
 release-align status --workspace ./mailion.workspace.json --base-dir "$BASE_DIR" --remote
@@ -209,6 +211,8 @@ release-align workspace clone \
   --base-dir "$BASE_DIR" \
   --all
 ```
+
+`workspace archive` writes one ZIP of the selected trees. Paths inside the archive follow `projects[].path`, for example `mailion/search/pasifae/go.mod`, plus `_release-align/manifest.json` with the resolved commit for each repository. Omit `--repo` and `--group` to pack every repository. The revision is the pin, or `default_branch` when there is no pin. Those names are resolved to commits from local refs before the first `git archive`. A local branch or the current HEAD is not substituted. There is no fetch, clone, or checkout. A missing clone or object stops the command, and the destination file is not created or replaced. `git archive` exports the committed tree, so uncommitted and untracked files stay out. Tracked files stay unless `.gitattributes` marks them `export-ignore`. Submodule contents are not downloaded; gitlinks are listed in the manifest. The archive is not a byte-identical promise and it is not a full build backup. `--archive-timeout` bounds one repository, including the copy into the shared ZIP.
 
 `--remote` on `status` or on a sync checks the saved groups after the local operation and prints the difference. It does not clone and it does not change the workspace file. Without `--remote` the report says the inventory was not checked. `ready` counts selected workspace rows. Uncloned projects in the GitLab scope are a separate list, not a failed selection. Archived projects and projects shared in from outside the group are omitted. If the API does not return a complete list, the report says the catalog is unknown and does not claim that nothing is new. After a confirmed network failure or a cancel of the sync, the API is not asked again. If the branches were switched and the inventory request then fails, the message says both: alignment completed, inventory failed, nothing was cloned. The exit status is 1.
 
@@ -244,6 +248,8 @@ An explicit flag overrides the environment variable of the same setting. When th
 | `FETCH_TIMEOUT` | `--fetch-timeout` |
 | `PROBE_TIMEOUT` | `--probe-timeout` |
 | `LOCAL_TIMEOUT` | `--local-timeout` |
+| `CLONE_TIMEOUT` | `--clone-timeout` |
+| `ARCHIVE_TIMEOUT` | `--archive-timeout` |
 | `JOBS` | `--jobs` |
 | `ATTEMPTS` | `--attempts` |
 | `RETRY_DELAY` | `--retry-delay` |

@@ -132,6 +132,22 @@ func (c *Client) Fetch(ctx context.Context, dir string, timeout time.Duration) e
 	return err
 }
 
+// Archive writes one revision to a ZIP file. It does not fetch or check out that revision.
+func (c *Client) Archive(ctx context.Context, dir, prefix, output, oid string, timeout time.Duration) error {
+	_, err := c.Run(
+		ctx,
+		dir,
+		timeout,
+		"archive",
+		"--format=zip",
+		"--prefix="+prefix,
+		"--output="+output,
+		oid,
+	)
+
+	return err
+}
+
 // Error formats the failed git command with URL credentials removed.
 func (e *CommandError) Error() string {
 	return RedactText(fmt.Sprintf("git %s: %v: %s", strings.Join(e.Args, " "), e.Err, e.Output))

@@ -65,6 +65,12 @@ func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error
 		return usageCommand(cmd, cfg, mode, err)
 	}
 
+	cfg.SetTimeoutLocks(timeoutLocks(cmd))
+
+	if err = app.ApplySpecTimeouts(cfg, spec); err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
 	if err = app.PrepareRemote(cfg, spec); err != nil {
 		return usageCommand(cmd, cfg, mode, err)
 	}

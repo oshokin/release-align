@@ -66,7 +66,11 @@ func workspaceUsage(err error) bool {
 		errors.Is(err, errCloneBranch) ||
 		errors.Is(err, errCloneAlign) ||
 		errors.Is(err, errTimeoutRange) ||
-		errors.Is(err, errWorkspaceOutput)
+		errors.Is(err, errWorkspaceTimeout) ||
+		errors.Is(err, errWorkspaceOutput) ||
+		errors.Is(err, errArchiveFile) ||
+		errors.Is(err, errArchiveEmpty) ||
+		errors.Is(err, errArchiveReserved)
 }
 
 // workspaceResultError returns an error when the report is not a success.

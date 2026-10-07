@@ -67,6 +67,7 @@ func newWorkspaceCommand() *cobra.Command {
 	command.AddCommand(initCommand)
 	command.AddCommand(newWorkspaceRefreshCommand())
 	command.AddCommand(newWorkspaceCloneCommand())
+	command.AddCommand(newWorkspaceArchiveCommand())
 
 	return command
 }

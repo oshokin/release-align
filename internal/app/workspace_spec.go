@@ -22,6 +22,8 @@ type WorkspaceSpec struct {
 	DefaultBranch string `json:"default_branch,omitempty"`
 	// GitLab is the optional server scope for --remote and workspace clone.
 	GitLab *GitLabSource `json:"gitlab,omitempty"`
+	// Timeouts holds optional duration overrides. Omitted fields keep the program defaults.
+	Timeouts *WorkspaceTimeouts `json:"timeouts,omitempty"`
 	// Projects are the selected repositories in file order.
 	Projects []*ProjectSpec `json:"projects"`
 }
@@ -206,6 +208,7 @@ func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 		Release:       w.Release,
 		DefaultBranch: w.DefaultBranch,
 		GitLab:        w.GitLab.clone(),
+		Timeouts:      w.Timeouts.clone(),
 		Projects:      projects,
 	}
 }

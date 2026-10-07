@@ -152,7 +152,12 @@ func rejectCloneHazards(base string, paths []string, inventory *RemoteInventory)
 	}
 	diff := newRemoteDiff(query)
 
-	if diff.caseFolding() && foldedPair(paths) {
+	folding, err := diff.caseFolding()
+	if err != nil {
+		return fmt.Errorf("%w: case check failed: %w", errCloneConflict, err)
+	}
+
+	if folding && foldedPair(paths) {
 		return errCloneConflict
 	}
 

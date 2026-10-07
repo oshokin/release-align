@@ -127,6 +127,24 @@ func (c *Config) applyDurationEnv(getenv func(string) string) error {
 		c.RetryDelay = delay
 	}
 
+	clone, ok, err := c.envDuration(getenv, "CLONE_TIMEOUT")
+	if err != nil {
+		return err
+	}
+
+	if ok {
+		c.CloneTimeout = clone
+	}
+
+	archive, ok, err := c.envDuration(getenv, "ARCHIVE_TIMEOUT")
+	if err != nil {
+		return err
+	}
+
+	if ok {
+		c.ArchiveTimeout = archive
+	}
+
 	return nil
 }
 
