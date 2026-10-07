@@ -36,21 +36,24 @@ func TestScanWorkspaceFindsNestedGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []*ProjectSpec{
-		{
-			Path:   "group/repo with spaces",
-			Groups: []string{"group"},
-		},
-		{
-			Path:   "mailion/search/service",
-			Groups: []string{"mailion", "mailion/search"},
-		},
-		{
-			Path: "standalone",
-		},
-	}
-	if !reflect.DeepEqual(spec.Projects, want) {
+
+	if len(spec.Projects) != 3 {
 		t.Fatalf("got %+v", spec.Projects)
+	}
+
+	if spec.Projects[0].Path != "group/repo with spaces" || spec.Projects[0].URL != f.remote ||
+		spec.Projects[0].Name != "repo with spaces" {
+		t.Fatalf("first: %+v", spec.Projects[0])
+	}
+
+	if spec.Projects[1].Path != "mailion/search/service" ||
+		spec.Projects[1].URL != "git@unreachable.invalid:group/repo.git" ||
+		!reflect.DeepEqual(spec.Projects[1].Groups, []string{"mailion", "mailion/search"}) {
+		t.Fatalf("nested: %+v", spec.Projects[1])
+	}
+
+	if spec.Projects[2].Path != "standalone" || spec.Projects[2].URL != f.remote || len(spec.Projects[2].Groups) != 0 {
+		t.Fatalf("standalone: %+v", spec.Projects[2])
 	}
 	second, err := ScanWorkspace(t.Context(), client, options)
 	if err != nil || !reflect.DeepEqual(spec, second) {
@@ -128,10 +131,11 @@ func TestScanWorkspaceRejectsMissingOrigin(t *testing.T) {
 	client := &gitter.Client{
 		LocalTimeout: f.cfg.LocalTimeout,
 	}
-	_, err := ScanWorkspace(t.Context(), client, options)
 
-	if !errors.Is(err, errWorkspaceInitOrigin) {
-		t.Fatal(err)
+	spec, err := ScanWorkspace(t.Context(), client, options)
+	if err != nil || len(spec.Projects) != 1 || spec.Projects[0].URL != "" ||
+		len(spec.URLGaps) != 1 {
+		t.Fatal(spec, err)
 	}
 }
 
@@ -169,7 +173,7 @@ func TestScanWorkspaceRejectsRootAndCancellation(t *testing.T) {
 // TestCreateWorkspaceFileNeverOverwrites verifies byte-for-byte preservation and schema round trips.
 func TestCreateWorkspaceFileNeverOverwrites(t *testing.T) {
 	spec := oneProject(t, "group/service", nil)
-	dest := filepath.Join(t.TempDir(), "workspace.json")
+	dest := filepath.Join(t.TempDir(), "workspace.yml")
 
 	if err := CreateWorkspaceFile(dest, spec); err != nil {
 		t.Fatal(err)
@@ -191,7 +195,7 @@ func TestCreateWorkspaceFileNeverOverwrites(t *testing.T) {
 	if err != nil || string(before) != string(after) {
 		t.Fatal("existing file changed")
 	}
-	link := filepath.Join(t.TempDir(), "link.json")
+	link := filepath.Join(t.TempDir(), "link.yml")
 	if err = os.Symlink(dest, link); err != nil {
 		t.Skip(err)
 	}

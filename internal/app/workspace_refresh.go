@@ -124,6 +124,10 @@ func previewWorkspaceRefresh(
 		return nil, err
 	}
 
+	if err = ResolveWorkspaceRevisions(ctx, g, options.BaseDir, document.spec); err != nil {
+		return nil, err
+	}
+
 	result, _, err := refreshInventory(ctx, g, options.BaseDir, document.spec)
 	if err != nil {
 		return nil, err
@@ -157,6 +161,10 @@ func writeWorkspaceRefresh(
 	}
 
 	if err = applyRefreshLocalTimeout(g, document.spec); err != nil {
+		return nil, err
+	}
+
+	if err = ResolveWorkspaceRevisions(ctx, g, options.BaseDir, document.spec); err != nil {
 		return nil, err
 	}
 

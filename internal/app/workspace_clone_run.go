@@ -76,7 +76,7 @@ func wantedClonePaths(
 			continue
 		}
 
-		if !cloneListed(spec, project.PathWithNamespace) && spec.DefaultBranch == "" {
+		if !cloneListed(spec, project.PathWithNamespace) && !spec.hasDefault() {
 			return nil, errCloneAlign
 		}
 
@@ -113,7 +113,7 @@ func explicitClonePaths(spec *WorkspaceSpec, repos []string, byPath map[string]*
 			return nil, fmt.Errorf("%w: %s", errCloneBranch, path)
 		}
 
-		if !cloneListed(spec, path) && spec.DefaultBranch == "" {
+		if !cloneListed(spec, path) && !spec.hasDefault() {
 			return nil, fmt.Errorf("%w: %s", errCloneAlign, path)
 		}
 

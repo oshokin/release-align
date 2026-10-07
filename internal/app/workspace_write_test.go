@@ -57,7 +57,7 @@ func (shortWriteCloser) Close() error {
 func TestCreateWorkspaceFileRejectsOversizedDocument(t *testing.T) {
 	spec := oneProject(t, "group/service", nil)
 	spec.Release = strings.Repeat("a", workspaceMaxBytes)
-	dest := filepath.Join(t.TempDir(), "workspace.json")
+	dest := filepath.Join(t.TempDir(), "workspace.yml")
 
 	if err := CreateWorkspaceFile(dest, spec); !errors.Is(err, errWorkspaceSize) {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestCreateWorkspaceFileRejectsOversizedDocument(t *testing.T) {
 // TestCreateWorkspaceFileMissingParentDoesNotInventADirectory keeps a bad path visible.
 func TestCreateWorkspaceFileMissingParentDoesNotInventADirectory(t *testing.T) {
 	spec := oneProject(t, "group/service", nil)
-	dest := filepath.Join(t.TempDir(), "missing", "workspace.json")
+	dest := filepath.Join(t.TempDir(), "missing", "workspace.yml")
 
 	if err := CreateWorkspaceFile(dest, spec); err == nil {
 		t.Fatal("created a workspace without its parent directory")

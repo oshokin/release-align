@@ -25,7 +25,9 @@ func TestReviewAuthIsolation(t *testing.T) {
 	sshScript(t, body)
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path: "group/repo with spaces",
@@ -70,7 +72,9 @@ func TestReviewActualAfterFailedApply(t *testing.T) {
 	later := filepath.Join(f.base, "group", second)
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "Release-26.3.0",
+		DefaultRevision: &RevisionSpec{
+			Branch: "Release-26.3.0",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path: "group/repo with spaces",
@@ -112,7 +116,9 @@ func TestReviewConfirmFailureDropsStaleActual(t *testing.T) {
 		}
 	}
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if err == nil || report.Ready || report.Rows[0].Actual != nil {

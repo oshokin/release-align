@@ -26,7 +26,7 @@ func TestCreateWorkspaceFilePermissionDenied(t *testing.T) {
 		}
 	})
 
-	dest := filepath.Join(dir, "workspace.json")
+	dest := filepath.Join(dir, "workspace.yml")
 	spec := oneProject(t, "group/service", nil)
 
 	if err := CreateWorkspaceFile(dest, spec); err == nil {

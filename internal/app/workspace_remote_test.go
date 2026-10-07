@@ -19,7 +19,9 @@ import (
 func TestAppendKeepsGitLabSource(t *testing.T) {
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		GitLab: &GitLabSource{
 			URL:    "https://gitlab.example",
 			Groups: []string{"mailion"},
@@ -51,7 +53,9 @@ func TestAppendKeepsGitLabSource(t *testing.T) {
 func TestGitLabSourceCloneDoesNotShareGroups(t *testing.T) {
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		GitLab: &GitLabSource{
 			URL:    "https://gitlab.example",
 			Groups: []string{"mailion", "mailion"},

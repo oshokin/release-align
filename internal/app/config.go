@@ -12,7 +12,7 @@ import (
 type Config struct {
 	// BaseDir is the root that contains the clones named by the workspace file.
 	BaseDir string
-	// Branch replaces default_branch when the flag is present on the command line.
+	// Branch replaces defaults.revision when the flag is present on the command line.
 	Branch string
 	// Jobs is the number of repositories updated at once.
 	Jobs int

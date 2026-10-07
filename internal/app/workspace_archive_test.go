@@ -42,7 +42,9 @@ func TestArchivePacksPinnedTrees(t *testing.T) {
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       "26.3.0",
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path:   "group/repo with spaces",
@@ -285,12 +287,12 @@ func TestArchiveEntryNames(t *testing.T) {
 
 // TestArchiveTimeoutOverride lets an unlocked workspace value replace the default.
 func TestArchiveTimeoutOverride(t *testing.T) {
-	raw := `{"schema_version":1,"default_branch":"master","timeouts":{"archive":"0"},"projects":[{"path":"a/b"}]}`
+	raw := "manifest:\n  projects:\n    - name: b\n      path: a/b\nrelease-align:\n  schema-version: 1\n  timeouts:\n    archive: \"0\"\n"
 	if _, err := DecodeWorkspace(strings.NewReader(raw)); err == nil {
 		t.Fatal("zero archive timeout accepted")
 	}
 
-	raw = `{"schema_version":1,"default_branch":"master","timeouts":{"archive":"30m"},"projects":[{"path":"a/b"}]}`
+	raw = "manifest:\n  defaults:\n    revision: refs/heads/master\n  projects:\n    - name: b\n      path: a/b\nrelease-align:\n  schema-version: 1\n  timeouts:\n    archive: 30m\n"
 
 	spec, err := DecodeWorkspace(strings.NewReader(raw))
 	if err != nil {
@@ -349,7 +351,9 @@ func TestArchiveLargeFileCopiesABlob(t *testing.T) {
 func archiveProject(f *fixture, revision *RevisionSpec) *WorkspaceSpec {
 	return &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path:     "group/repo with spaces",
@@ -376,13 +380,14 @@ func archiveOpts(f *fixture, workspace, dest string, repos, groups []string) *Wo
 func writeWorkspace(t *testing.T, dir string, spec *WorkspaceSpec) string {
 	t.Helper()
 
-	encoded, err := json.Marshal(spec)
-	if err != nil {
+	path := filepath.Join(dir, "workspace.yml")
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(dir, "workspace.json")
-	write(t, path, string(encoded))
+	if err := CreateWorkspaceFile(path, spec); err != nil {
+		t.Fatal(err)
+	}
 
 	return path
 }

@@ -128,8 +128,10 @@ func TestRefreshPreservesManualIntent(t *testing.T) {
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       "Mailion 26.3",
-		DefaultBranch: "master",
-		Projects:      []*ProjectSpec{older, keeper},
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
+		Projects: []*ProjectSpec{older, keeper},
 	}
 	file := saveWorkspace(t, spec)
 	rel := cloneRel(t, f, "m/new")
@@ -148,7 +150,7 @@ func TestRefreshPreservesManualIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if loaded.Release != spec.Release || loaded.DefaultBranch != spec.DefaultBranch ||
+	if loaded.Release != spec.Release || loaded.DefaultRevision.Branch != spec.DefaultRevision.Branch ||
 		len(loaded.Projects) != 4 ||
 		loaded.Projects[0].Path != "z/old" || loaded.Projects[1].Path != "a/keep" ||
 		loaded.Projects[2].Path != "group/repo with spaces" || loaded.Projects[3].Path != rel ||
@@ -214,16 +216,15 @@ func TestStatusIgnoresUnlistedClone(t *testing.T) {
 	}
 }
 
-// TestRefreshPinnedWorkspaceRejectsImplicitAdd allows a preview and refuses a new unpinned project.
-func TestRefreshPinnedWorkspaceRejectsImplicitAdd(t *testing.T) {
+// TestRefreshOmittedDefaultInheritsMaster lets a new project inherit west's master.
+func TestRefreshOmittedDefaultInheritsMaster(t *testing.T) {
 	f := setup(t)
 	revision := &RevisionSpec{
 		Commit: git(t, f.repo, "rev-parse", "HEAD"),
 	}
 	spec := oneProject(t, "group/repo with spaces", revision)
-	spec.DefaultBranch = ""
+	spec.DefaultRevision = nil
 	file := saveWorkspace(t, spec)
-	before := readBytes(t, file)
 	rel := cloneRel(t, f, "mailion/search/new-indexer")
 	preview := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
@@ -235,17 +236,15 @@ func TestRefreshPinnedWorkspaceRejectsImplicitAdd(t *testing.T) {
 	}
 
 	preview.Add = []string{rel}
-	if _, err = RefreshWorkspace(
-		t.Context(),
-		offlineClient(f),
-		file,
-		preview,
-	); !errors.Is(
-		err,
-		ErrWorkspaceRefreshUsage,
-	) ||
-		!bytes.Equal(readBytes(t, file), before) {
-		t.Fatal(err)
+
+	added, err := RefreshWorkspace(t.Context(), offlineClient(f), file, preview)
+	if err != nil || !added.Written {
+		t.Fatal(added, err)
+	}
+
+	loaded, err := LoadWorkspace(file)
+	if err != nil || loaded.RevisionFor(loaded.Projects[len(loaded.Projects)-1]).Branch != westDefaultBranch {
+		t.Fatal(loaded, err)
 	}
 }
 
@@ -279,7 +278,9 @@ func TestRefreshKeepsHiddenAndNestedRoots(t *testing.T) {
 	nested := cloneRel(t, f, "group/repo with spaces/vendor/nested")
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path: "group/repo with spaces",
@@ -355,7 +356,9 @@ func TestRefreshRejectsBrokenListedPath(t *testing.T) {
 	write(t, filepath.Join(broken, ".git"), "not a gitfile")
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path: "group/repo with spaces",
@@ -560,7 +563,7 @@ func workspaceFromScan(t *testing.T, f *fixture) string {
 func saveWorkspace(t *testing.T, spec *WorkspaceSpec) string {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "workspace.json")
+	path := filepath.Join(t.TempDir(), "workspace.yml")
 	if err := CreateWorkspaceFile(path, spec); err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,9 @@ func TestWorkspaceSyncBlocksMissingRepositoryBeforeCheckout(t *testing.T) {
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       "Mailion 26.3.0",
-		DefaultBranch: "Release-26.3.0",
+		DefaultRevision: &RevisionSpec{
+			Branch: "Release-26.3.0",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path:   "group/repo with spaces",
@@ -90,7 +92,9 @@ func TestWorkspaceSyncFastForwardsExactBranch(t *testing.T) {
 	f := setup(t)
 	oid := branch(t, f, "Release-26.3.0")
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if err != nil || !report.Ready || report.Freshness != freshnessFetched {
@@ -117,7 +121,9 @@ func TestWorkspaceStatusSeesDirtyTreeWithoutNetwork(t *testing.T) {
 	git(t, f.repo, "remote", "set-url", "origin", "git@192.0.2.1:missing/repo.git")
 
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeStatus)
 
 	if ExitCodeForWorkspace(err) != 3 || report.Freshness != freshnessCached ||
@@ -136,7 +142,9 @@ func TestWorkspaceSelectionKeepsInventory(t *testing.T) {
 	_ = branch(t, f, "Release-26.3.0")
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "Release-26.3.0",
+		DefaultRevision: &RevisionSpec{
+			Branch: "Release-26.3.0",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path:   "group/repo with spaces",
@@ -177,7 +185,9 @@ func oneProject(t *testing.T, path string, revision *RevisionSpec) *WorkspaceSpe
 	return &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       "test",
-		DefaultBranch: "master",
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path:     path,

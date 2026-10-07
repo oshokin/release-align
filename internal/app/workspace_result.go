@@ -70,7 +70,10 @@ func workspaceUsage(err error) bool {
 		errors.Is(err, errWorkspaceOutput) ||
 		errors.Is(err, errArchiveFile) ||
 		errors.Is(err, errArchiveEmpty) ||
-		errors.Is(err, errArchiveReserved)
+		errors.Is(err, errArchiveReserved) ||
+		errors.Is(err, errWorkspaceInactive) ||
+		errors.Is(err, errWorkspaceRevisionShort) ||
+		errors.Is(err, errCloneDepth)
 }
 
 // workspaceResultError returns an error when the report is not a success.

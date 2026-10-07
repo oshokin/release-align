@@ -56,7 +56,7 @@ func newWorkspaceRefreshCommand() *cobra.Command {
 
 	flags := command.Flags()
 	flags.StringVar(&handler.baseDir, "base-dir", "", "directory containing existing clones (required)")
-	flags.StringVar(&handler.file, "file", "", "existing workspace JSON file (required)")
+	flags.StringVar(&handler.file, "file", "", "existing workspace YAML file (.yml or .yaml, required)")
 	flags.StringArrayVar(&handler.add, "add", nil, "exact relative path to add; repeatable; not a glob")
 	flags.BoolVar(&handler.addAll, "add-all", false, "add every new local clone under base-dir")
 

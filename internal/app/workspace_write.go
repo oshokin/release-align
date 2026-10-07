@@ -3,12 +3,14 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // workspaceDocument is one regular workspace file read for a refresh.
@@ -21,6 +23,8 @@ type workspaceDocument struct {
 	data []byte
 	// spec is the decoded inventory.
 	spec *WorkspaceSpec
+	// root is the YAML mapping that was read. Publication edits a copy.
+	root *yaml.Node
 }
 
 // workspacePublishHooks replaces steps of one publication. Nil hooks use the real filesystem.
@@ -57,12 +61,15 @@ func CreateWorkspaceFile(filename string, spec *WorkspaceSpec) error {
 		return err
 	}
 
-	data, err := json.MarshalIndent(spec, "", "  ")
+	if err := workspaceExtension(filename); err != nil {
+		return err
+	}
+
+	data, err := encodeFresh(spec)
 	if err != nil {
 		return err
 	}
 
-	data = append(data, '\n')
 	if _, err = DecodeWorkspace(bytes.NewReader(data)); err != nil {
 		return err
 	}
@@ -140,7 +147,7 @@ func readWorkspaceDocument(path string) (*workspaceDocument, error) {
 		return nil, err
 	}
 
-	spec, err := DecodeWorkspace(bytes.NewReader(data))
+	decoded, err := decodeWorkspaceBytes(data)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +156,8 @@ func readWorkspaceDocument(path string) (*workspaceDocument, error) {
 		path: path,
 		info: info,
 		data: data,
-		spec: spec,
+		spec: decoded.spec,
+		root: decoded.root,
 	}
 
 	return document, nil
@@ -164,7 +172,7 @@ func publishWorkspace(
 	spec *WorkspaceSpec,
 	hooks *workspacePublishHooks,
 ) error {
-	data, err := encodeWorkspace(spec)
+	data, err := encodeWorkspace(spec, document.root)
 	if err != nil {
 		return err
 	}
@@ -207,22 +215,45 @@ func publishWorkspace(
 }
 
 // encodeWorkspace checks the replacement against the same decoder used for init.
-func encodeWorkspace(spec *WorkspaceSpec) ([]byte, error) {
+func encodeWorkspace(spec *WorkspaceSpec, root *yaml.Node) ([]byte, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
 
-	data, err := json.MarshalIndent(spec, "", "  ")
+	var (
+		data []byte
+		err  error
+	)
+
+	if root == nil {
+		data, err = encodeFresh(spec)
+	} else {
+		data, err = encodeEdited(root, spec)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	data = append(data, '\n')
+	if len(data) > workspaceMaxBytes {
+		return nil, errWorkspaceSize
+	}
+
 	if _, err = DecodeWorkspace(bytes.NewReader(data)); err != nil {
 		return nil, err
 	}
 
 	return data, nil
+}
+
+// workspaceExtension accepts .yml and .yaml for a new file.
+func workspaceExtension(filename string) error {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".yml", ".yaml":
+		return nil
+	default:
+		return errWorkspaceExtension
+	}
 }
 
 // preparePublishedFile copies the mode, writes the document, and syncs it before publication.

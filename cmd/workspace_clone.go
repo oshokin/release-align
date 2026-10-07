@@ -47,8 +47,8 @@ func newWorkspaceCloneCommand() *cobra.Command {
 			"--all uses the gitlab.groups saved in the workspace, including subgroups, not every project on the server.\n" +
 			"An existing matching checkout is reused. Occupied paths are not replaced.\n" +
 			"Clones stay on the remote default branch; run release-align to align the release.\n\n" +
-			"  release-align workspace clone --workspace ./mailion.workspace.json --base-dir \"$BASE_DIR\" --repo mailion/search/new-indexer\n" +
-			"  release-align workspace clone --workspace ./mailion.workspace.json --base-dir \"$BASE_DIR\" --all",
+			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$BASE_DIR\" --repo mailion/search/new-indexer\n" +
+			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$BASE_DIR\" --all",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -61,7 +61,7 @@ func newWorkspaceCloneCommand() *cobra.Command {
 		}
 	})
 	flags := command.Flags()
-	flags.StringVar(&options.WorkspaceFile, "workspace", "", "workspace JSON (required)")
+	flags.StringVar(&options.WorkspaceFile, "workspace", "", "workspace YAML (.yml or .yaml, required)")
 	flags.StringVar(&options.BaseDir, "base-dir", "", "directory that will contain <namespace> clones (required)")
 	flags.StringArrayVar(&options.Repos, "repo", nil, "exact GitLab path_with_namespace; repeatable")
 	flags.BoolVar(&options.All, "all", false, "clone and include every project in gitlab.groups")

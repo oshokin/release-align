@@ -34,7 +34,8 @@ func newWorkspaceCommand() *cobra.Command {
 	initCommand := &cobra.Command{
 		Use:   "init",
 		Short: "Create an inventory from existing local clones and directory groups",
-		Long: "Scan --base-dir for Git working trees and write a new schema 1 workspace.\n" +
+		Long: "Scan --base-dir for Git working trees and write a new release-align.yml.\n" +
+			"The file is a west manifest plus a release-align block. It is not a full west workspace.\n" +
 			"A group is a parent directory prefix: mailion/search/pasifae is in mailion and mailion/search.\n" +
 			"A repository directly under --base-dir has no group. Hidden directories and directory symlinks are skipped.\n" +
 			"The scan does not fetch, and it does not check that --branch exists. --file must not already exist.\n" +
@@ -50,7 +51,7 @@ func newWorkspaceCommand() *cobra.Command {
 		"",
 		"explicit default branch; existence is checked by sync/status (required)",
 	)
-	flags.StringVar(&handler.file, "file", "", "new workspace JSON filename; must not exist (required)")
+	flags.StringVar(&handler.file, "file", "", "new workspace YAML filename (.yml or .yaml); must not exist (required)")
 	flags.StringVar(&options.Release, "release", "", "optional human-readable release label")
 	flags.StringVar(
 		&options.GitLabURL,
@@ -110,6 +111,22 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		"Created %s: %d local repositories. Review the inventory before synchronization.\n",
 		c.file,
 		len(spec.Projects),
+	)
+	if err != nil {
+		return &commandError{
+			code:  exitFailed,
+			cause: err,
+		}
+	}
+
+	if len(spec.URLGaps) == 0 {
+		return nil
+	}
+
+	_, err = fmt.Fprintf(
+		command.OutOrStdout(),
+		"URL omitted for %d projects. Fill url before using the file with west.\n",
+		len(spec.URLGaps),
 	)
 	if err != nil {
 		return &commandError{

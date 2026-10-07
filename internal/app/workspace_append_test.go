@@ -18,8 +18,10 @@ func TestAppendDiscoveredProjectsPreservesIntent(t *testing.T) {
 	current := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       "Mailion 26.3",
-		DefaultBranch: "Release-26.3.0",
-		Projects:      []*ProjectSpec{existing},
+		DefaultRevision: &RevisionSpec{
+			Branch: "Release-26.3.0",
+		},
+		Projects: []*ProjectSpec{existing},
 	}
 	rediscovered := &ProjectSpec{
 		Path:   "z/old",
@@ -45,7 +47,7 @@ func TestAppendDiscoveredProjectsPreservesIntent(t *testing.T) {
 		t.Fatalf("intent/order lost: next=%+v added=%v", next, added)
 	}
 
-	if next.Release != current.Release || next.DefaultBranch != current.DefaultBranch ||
+	if next.Release != current.Release || next.DefaultRevision.Branch != current.DefaultRevision.Branch ||
 		next.Projects[1].Revision != nil {
 		t.Fatal("metadata or default revision inheritance changed")
 	}
@@ -94,8 +96,10 @@ func TestAppendDiscoveredProjectsRejectsInvalidCandidates(t *testing.T) {
 	}
 	current := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "release",
-		Projects:      []*ProjectSpec{existing},
+		DefaultRevision: &RevisionSpec{
+			Branch: "release",
+		},
+		Projects: []*ProjectSpec{existing},
 	}
 	unsafe := &ProjectSpec{
 		Path: "../escape",

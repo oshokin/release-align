@@ -58,7 +58,9 @@ func TestWorkspaceDryRunDoesNotMutate(t *testing.T) {
 	git(t, f.repo, "fetch", "origin")
 	f.cfg.DryRun = true
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if err != nil || report.Ready || report.Mode != ModePlan || !report.DryRun || report.Freshness != freshnessCached {
@@ -79,7 +81,9 @@ func TestWorkspaceTargetChangeSkipsCheckout(t *testing.T) {
 		git(t, f.repo, "update-ref", "refs/remotes/origin/Release-26.3.0", master)
 	}
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if ExitCodeForWorkspace(err) != 3 || report.Rows[0].ReasonCode != reasonTargetChanged {
@@ -99,7 +103,9 @@ func TestWorkspacePostCheckRejectsExternalEdit(t *testing.T) {
 		write(t, filepath.Join(dir, "sneaky"), "x")
 	}
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if ExitCodeForWorkspace(err) != 3 || report.Ready || report.Rows[0].ReasonCode != reasonDirty {
@@ -133,7 +139,9 @@ func TestWorkspaceUnknownGroupIsUsage(t *testing.T) {
 func TestWorkspaceBranchOverrideKeepsExplicitRevision(t *testing.T) {
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "Release-26.3.0",
+		DefaultRevision: &RevisionSpec{
+			Branch: "Release-26.3.0",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path: "search/pasifae",
@@ -148,7 +156,8 @@ func TestWorkspaceBranchOverrideKeepsExplicitRevision(t *testing.T) {
 	}
 	next, err := spec.WithDefaultBranch("Release-26.4.0")
 
-	if err != nil || next.DefaultBranch != "Release-26.4.0" || spec.DefaultBranch != "Release-26.3.0" {
+	if err != nil || next.DefaultRevision.Branch != "Release-26.4.0" ||
+		spec.DefaultRevision.Branch != "Release-26.3.0" {
 		t.Fatal(next, err)
 	}
 

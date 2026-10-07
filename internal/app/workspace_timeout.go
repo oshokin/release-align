@@ -40,6 +40,19 @@ type timeoutField struct {
 	value *string
 }
 
+const (
+	// timeoutProbe is the workspace key for a probe override.
+	timeoutProbe = "probe"
+	// timeoutFetch is the workspace key for a fetch override.
+	timeoutFetch = "fetch"
+	// timeoutLocal is the workspace key for a local-command override.
+	timeoutLocal = "local"
+	// timeoutClone is the workspace key for a clone override.
+	timeoutClone = "clone"
+	// timeoutArchive is the workspace key for an archive override.
+	timeoutArchive = "archive"
+)
+
 // SetTimeoutLocks stores which durations a command already resolved.
 func (c *Config) SetTimeoutLocks(locks *TimeoutLocks) {
 	if c == nil {
@@ -167,11 +180,11 @@ func (t *WorkspaceTimeouts) Validate() error {
 	}
 
 	fields := []*timeoutField{
-		{name: "probe", value: t.Probe},
-		{name: "fetch", value: t.Fetch},
-		{name: "local", value: t.Local},
-		{name: "clone", value: t.Clone},
-		{name: "archive", value: t.Archive},
+		{name: timeoutProbe, value: t.Probe},
+		{name: timeoutFetch, value: t.Fetch},
+		{name: timeoutLocal, value: t.Local},
+		{name: timeoutClone, value: t.Clone},
+		{name: timeoutArchive, value: t.Archive},
 	}
 
 	for _, field := range fields {

@@ -21,7 +21,9 @@ func TestWorkspaceOtherWorktreeIsNotForced(t *testing.T) {
 
 	head := git(t, f.repo, "rev-parse", "HEAD")
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
 	if err == nil || report.Ready {
@@ -54,8 +56,10 @@ func TestWorkspaceReportsEveryMissingPath(t *testing.T) {
 
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "master",
-		Projects:      projects,
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
+		Projects: projects,
 	}
 	report, err := runWorkspace(t, f, spec, ModeSync)
 
@@ -109,7 +113,9 @@ func TestWorkspaceJSONRoundTripKeepsMessage(t *testing.T) {
 	f := setup(t)
 	oid := branch(t, f, "Release-26.3.0")
 	spec := oneProject(t, "group/repo with spaces", nil)
-	spec.DefaultBranch = "Release-26.3.0"
+	spec.DefaultRevision = &RevisionSpec{
+		Branch: "Release-26.3.0",
+	}
 
 	report, err := runWorkspace(t, f, spec, ModeSync)
 	if err != nil {

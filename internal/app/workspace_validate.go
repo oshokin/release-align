@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
-// pathDotDot is the parent-directory segment rejected in project paths.
-const pathDotDot = ".."
+const (
+	// pathDotDot is the parent-directory segment rejected in project paths.
+	pathDotDot = ".."
+	// reservedProjectName is the west name that means the manifest repository.
+	reservedProjectName = "manifest"
+)
 
 // Validate checks the inventory shape before any Git command runs.
 func (w *WorkspaceSpec) Validate() error {
@@ -25,17 +29,35 @@ func (w *WorkspaceSpec) Validate() error {
 		return err
 	}
 
-	branch := &RevisionSpec{
-		Branch: w.DefaultBranch,
+	ensureProjectNames(w.Projects)
+
+	if w.DefaultRevision != nil {
+		if err := w.DefaultRevision.Validate(); err != nil {
+			return errWorkspaceDefaultBranch
+		}
 	}
-	if w.DefaultBranch != "" && !branch.safeRevisionName() {
-		return errWorkspaceDefaultBranch
-	}
+
 	seen := make(map[string]bool)
 	for _, p := range w.Projects {
 		if err := w.validateProject(p, seen); err != nil {
 			return err
 		}
+	}
+
+	return w.validateNames()
+}
+
+// validateNames rejects an empty, slashed, reserved, or repeated west name.
+func (w *WorkspaceSpec) validateNames() error {
+	seen := make(map[string]bool, len(w.Projects))
+
+	for _, project := range w.Projects {
+		if project == nil || project.Name == "" || project.Name == reservedProjectName ||
+			strings.ContainsAny(project.Name, `/\`) || seen[project.Name] {
+			return errWorkspaceName
+		}
+
+		seen[project.Name] = true
 	}
 
 	return nil
@@ -58,7 +80,7 @@ func (w *WorkspaceSpec) validateProject(p *ProjectSpec, seen map[string]bool) er
 
 // validateProjectRevision requires a revision or a workspace default branch.
 func (w *WorkspaceSpec) validateProjectRevision(p *ProjectSpec) error {
-	if p.Revision == nil && w.DefaultBranch == "" {
+	if p.Revision == nil && p.shortRevision == "" && !w.hasDefault() {
 		return fmt.Errorf("%s: %w", p.Path, errWorkspaceNoDefault)
 	}
 

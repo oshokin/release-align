@@ -18,7 +18,7 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	seed := filepath.Join(root, "seed")
 	first := filepath.Join(base, "mailion", "search", "pasifae")
 	second := filepath.Join(base, "mailion", "search", "new-indexer")
-	file := filepath.Join(root, "mailion.workspace.json")
+	file := filepath.Join(root, "release-align.yml")
 
 	gitCmd(t, root, "init", "--bare", "--initial-branch=master", remote)
 	gitCmd(t, root, "clone", remote, seed)
@@ -115,7 +115,7 @@ func TestWorkspaceRefreshUsage(t *testing.T) {
 	base := filepath.Join(root, "src")
 	remote := filepath.Join(root, "origin.git")
 	repo := filepath.Join(base, "mailion", "search", "pasifae")
-	file := filepath.Join(root, "mailion.workspace.json")
+	file := filepath.Join(root, "release-align.yml")
 	gitCmd(t, root, "init", "--bare", "--initial-branch=master", remote)
 	gitCmd(t, root, "clone", remote, repo)
 	writeTestFile(t, filepath.Join(repo, "file"), "initial\n")

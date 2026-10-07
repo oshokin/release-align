@@ -25,12 +25,12 @@ go build -o release-align .
 ./release-align workspace init \
   --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
   --branch Release-26.3.0 \
-  --file ./mailion.workspace.json
+  --file ./release-align.yml
 
 # Plan from refs already on disk. No fetch and no writes. Lazy fetch suppression is best effort.
-./release-align --workspace ./mailion.workspace.json --dry-run
+./release-align --workspace ./release-align.yml --dry-run
 
-./release-align --workspace ./mailion.workspace.json --jobs 4
+./release-align --workspace ./release-align.yml --jobs 4
 
 ./release-align --help
 ./release-align version
@@ -45,9 +45,9 @@ The program takes no positional arguments. `--workspace` is required for a sync 
 Prepares the clones named in the workspace file.
 
 ```bash
-release-align --base-dir ~/src --workspace ./mailion.workspace.json --jobs 4 --log-level debug
-release-align --workspace ./mailion.workspace.json -n -j 8 -l warn
-release-align --workspace ./mailion.workspace.json --group search --repo storage/dispersed-object-store
+release-align --base-dir ~/src --workspace ./release-align.yml --jobs 4 --log-level debug
+release-align --workspace ./release-align.yml -n -j 8 -l warn
+release-align --workspace ./release-align.yml --group search --repo storage/dispersed-object-store
 ```
 
 | Flag | Short | Default | Environment | Meaning |
@@ -55,8 +55,8 @@ release-align --workspace ./mailion.workspace.json --group search --repo storage
 | `--help` | `-h` | | | Print help and exit |
 | `--version` | `-v` | | | Print the version line and exit |
 | `--base-dir` | | `$HOME/go/src/gitlab.stageoffice.ru` | `BASE_DIR` | Root that contains the clones. `~` and `~/...` expand to the home directory. The path is stored absolute. An empty value is an error |
-| `--branch` | | `master` | | Replaces `default_branch` only when this flag is present. The built-in default does not |
-| `--workspace` | | | | Workspace JSON. Required |
+| `--branch` | | `master` | | Replaces `defaults.revision` for this run only when this flag is present. The built-in default does not |
+| `--workspace` | | | | Workspace YAML (`.yml` or `.yaml`). Required |
 | `--repo` | | | | Select a project by its relative path. Repeatable. Combined with `--group` as a union |
 | `--group` | | | | Select a group. Repeatable |
 | `--dry-run` | `-n` | `false` | `DRY_RUN` | Plan from refs already on disk. No probe, fetch, switch, or merge |
@@ -107,19 +107,19 @@ Reads cached refs and worktrees. Without `--remote` it does not call GitLab. It 
 
 ```bash
 release-align status --base-dir "$HOME/src/gitlab.stageoffice.ru" \
-  --workspace ./mailion.workspace.json --group search --output json
+  --workspace ./release-align.yml --group search --output json
 ```
 
 ## Workspace file
 
-`workspace init` writes the file from clones that are already on disk. `--base-dir`, `--branch`, and `--file` are required. `--release` is an optional label. `--file` is the new JSON path, not the report format (`--output`). The base directory is not stored in the file: paths stay relative to whatever `--base-dir` you pass later. The branch name is checked for syntax only. Sync and status are what notice a missing branch, a dirty tree, or a commit that is not local yet. `init` does not read the environment variables of sync.
+`workspace init` writes `release-align.yml` from clones that are already on disk. `--base-dir`, `--branch`, and `--file` are required. `--file` must end in `.yml` or `.yaml`. `--release` is an optional label. `--file` is the workspace, not the report format (`--output`). The base directory is not stored in the file: paths stay relative to whatever `--base-dir` you pass later. `--branch` is stored as `manifest.defaults.revision: refs/heads/<branch>`. Sync and status notice a missing branch, a dirty tree, or a commit that is not local yet. `init` does not read the environment variables of sync.
 
 ```bash
 release-align workspace init \
   --base-dir "$HOME/src/gitlab.stageoffice.ru" \
   --branch Release-26.3.0 \
   --release 'Mailion 26.3.0' \
-  --file ./mailion.workspace.json
+  --file ./release-align.yml
 ```
 
 A group is the relative path of a parent directory. Every ancestor prefix is recorded. A repository that sits directly under the base directory has no group. `mailion/search` and `another/search` stay separate, because the group is `mailion/search`, not the bare name `search`. `--group mailion` selects everything under that directory. `--group mailion/search` selects that subgroup. These are folder names, not a guess about which services depend on each other, and not a check of GitLab namespaces.
@@ -135,12 +135,12 @@ The scan walks the base directory, skips hidden directories, and does not follow
 
 `ready` describes the selected entries in the file, not every clone under the base directory. A new local clone stays invisible to `status` and sync until it is listed. A listed path that is gone is reported when that path is part of the selection.
 
-The document is validated, including the 1 MiB limit, before the destination is opened. The file is created with mode `0600` and only if that path does not exist. A symlink at the destination is also refused. There is no `--force`. The parent directory is not created for you. If the write or close fails, the new partial file is removed. An older file is not replaced. A crash can leave a partial new file; reading it fails as bad JSON. To regenerate, pick another filename and diff:
+The document is validated, including the 1 MiB limit, before the destination is opened. The file is created with mode `0600` and only if that path does not exist. A symlink at the destination is also refused. There is no `--force`. The parent directory is not created for you. If the write or close fails, the new partial file is removed. An older file is not replaced. A crash can leave a partial new file; reading it fails as bad YAML. To regenerate, pick another filename and diff:
 
 ```bash
 release-align workspace init --base-dir "$HOME/src/gitlab.stageoffice.ru" \
-  --branch Release-26.3.0 --file ./workspace.candidate.json
-diff -u ./mailion.workspace.json ./workspace.candidate.json
+  --branch Release-26.3.0 --file ./workspace.candidate.yml
+diff -u ./release-align.yml ./workspace.candidate.yml
 ```
 
 ### release-align workspace refresh
@@ -150,26 +150,26 @@ diff -u ./mailion.workspace.json ./workspace.candidate.json
 ```bash
 ./release-align workspace refresh \
   --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
-  --file ./mailion.workspace.json
+  --file ./release-align.yml
 
 ./release-align workspace refresh \
   --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
-  --file ./mailion.workspace.json \
+  --file ./release-align.yml \
   --add mailion/search/new-indexer
 
 ./release-align workspace refresh \
   --base-dir "$HOME/go/src/gitlab.stageoffice.ru" \
-  --file ./mailion.workspace.json \
+  --file ./release-align.yml \
   --add-all
 ```
 
 `--add` is repeatable and is one exact relative path, not a glob. A comma stays inside that path. `--add` and `--add-all` cannot be combined. Adding a path that is already listed does nothing. Adding a path that is not a new local clone fails the whole request before the file is replaced. `--add-all` appends every new local clone and leaves listed paths that are no longer on disk in the file. A second `--add-all` with nothing new does not open the file for writing.
 
-New entries go after the existing ones, in lexical order, with directory groups from the same rules as `init` and with no revision of their own. They inherit `default_branch`. A file whose projects are all pinned, and which has no `default_branch`, can be previewed, but a new unpinned project is rejected until you set `default_branch` or add the project by hand with a revision. Refresh does not invent `master` or `main`. Existing `release`, `default_branch`, groups, pins, and project order stay. The file may be reformatted when it actually changes.
+New entries go after the existing ones, in lexical order, with directory groups from the same rules as `init` and with no revision of their own. They inherit `manifest.defaults.revision`. When that field is omitted, west's `master` is the inherited revision. Existing release label, defaults, groups, pins, comments, and project order stay. A no-op refresh does not rewrite the file. A real write keeps the other YAML nodes and may reflow the appended project.
 
 An unlisted clone is not an error. Another project under the same directory may have been left out on purpose. A missing listed path is a warning in the preview; other valid additions are still allowed, and the missing entry is not deleted. A listed path that exists but is not a usable repository, including a broken `.git`, a missing origin, a symlink, or a permissions error, stops the command and does not write. A hidden or nested root that you put in the file by hand is checked directly, so the directory walk skipping it does not make it look deleted.
 
-Refresh does not fetch, switch, or ask the server whether `default_branch` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready.
+Refresh does not fetch, switch, or ask the server whether `defaults.revision` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready.
 
 A repository that was created on the server but never cloned is not in this scan. `status --remote` and `workspace clone` read that list from the GitLab groups saved in the file. `refresh` does not call the API.
 
@@ -177,7 +177,7 @@ While it writes, refresh creates `<file>.lock` next to the workspace with `O_EXC
 
 The replacement is a temporary file in the same directory, renamed onto the workspace name. On Unix that rename replaces the directory entry. Go does not promise the same atomicity on other operating systems, and this is not a crash-proof replace on every OS. If the rename fails, the original file stays and there is no second, destructive replace. Before the rename, refresh checks that the path is still that regular file and that its bytes are still the bytes it read. The check can notice an outside edit. It is not an atomic compare-and-swap against an editor, and two hard links to the file are not a supported way to edit it.
 
-A project revision is one of `branch`, `tag`, or `commit`. If it is omitted, the file's `default_branch` is used. `--branch` replaces that default only when the flag is present on the command line. A commit must be a full lowercase SHA-1 or SHA-256. The branch resolves to `origin/<branch>`, the tag to its peeled commit, and the commit to that object. Another branch, another tag, and the current upstream are not substitutes.
+A project revision is `refs/heads/<branch>`, `refs/tags/<tag>`, or a quoted full SHA-1 or SHA-256. If it is omitted, `manifest.defaults.revision` is used. `--branch` replaces that default only for the current run and does not remove a pin, even when the pin equals the default. A short name such as `main` is accepted only when that repository has exactly one of `refs/heads/main` or `refs/tags/main` locally. The branch resolves to `origin/<branch>`, the tag to its peeled commit, and the commit to that object. Another branch, another tag, and the current upstream are not substitutes.
 
 A dirty tree, an unfinished merge or rebase, an unpushed branch, or a detached HEAD that is not already the pinned commit is reported and left untouched. Local commits and uncommitted edits are not carried forward and are not discarded.
 
@@ -201,23 +201,25 @@ Fetch may update remote-tracking refs even when the worktrees stay put; the repo
 
 `status` cannot see commits that are only on the server. A workspace file may name full commit IDs directly. This build does not write a freeze file and does not add worktrees. Missing clones are not created by `status` or `sync`. Nothing is pushed, tagged, or built.
 
-An optional `gitlab` object names the server scope. `gitlab.groups` are GitLab namespace paths, including subgroups. `projects[].groups` stay the local selection labels. One is not derived from the other. `clone_protocol` is `ssh` or `https`; an empty value means `ssh`. The API token is `GITLAB_TOKEN` in the environment, sent as `Private-Token`. It is not stored in the file, the command line, or a clone URL. A file with `gitlab` or `timeouts` will not load in an older binary. A file without those objects still loads. `timeouts` stores only the overrides you set (`probe`, `fetch`, `local`, `clone`, `archive`). Omitted fields keep the program default. An empty string, `0`, a negative duration, or a bare number is rejected. `workspace init --gitlab-url` and repeatable `--gitlab-group` only save that object. They do not call the API.
+The workspace is one YAML document: a west `manifest` and a `release-align` block. `manifest.projects[].path` is still the `--repo` value. `name` is a short unique west name and is not the selector. `release-align.gitlab` is the server scope for `--remote` and `workspace clone`. `gitlab.groups` are GitLab namespace paths, including subgroups. `projects[].groups` stay the local selection labels. One is not derived from the other. `clone-protocol` is `ssh` or `https`; an empty value means `ssh`. The API token is `GITLAB_TOKEN` in the environment, sent as `Private-Token`. It is not stored in the file, the command line, or a clone URL. `release-align.timeouts` stores only the overrides you set (`probe`, `fetch`, `local`, `clone`, `archive`). Omitted fields keep the program default. An empty string, `0`, a negative duration, or a bare number is rejected. `workspace init --gitlab-url` and repeatable `--gitlab-group` only save that object. They do not call the API.
+
+This is not a replacement for west. A flat manifest with projects, URLs, paths, groups, and unambiguous branch, tag, or commit revisions can be passed to `--workspace` without moving the clones. `import`, submodule updates, and `clone-depth` are rejected with an error before Git changes anything. Resolve imports with `west manifest --resolve` and pass that file. `self.path` is not `--base-dir`. `west-commands` are kept and never executed. `--output json` and `_release-align/manifest.json` inside an archive stay JSON. Anchors, aliases, merge keys, and custom YAML tags are rejected.
 
 ```bash
-release-align status --workspace ./mailion.workspace.json --base-dir "$BASE_DIR" --remote
+release-align status --workspace ./release-align.yml --base-dir "$BASE_DIR" --remote
 
 release-align workspace clone \
-  --workspace ./mailion.workspace.json \
+  --workspace ./release-align.yml \
   --base-dir "$BASE_DIR" \
   --repo mailion/search/new-indexer
 
 release-align workspace clone \
-  --workspace ./mailion.workspace.json \
+  --workspace ./release-align.yml \
   --base-dir "$BASE_DIR" \
   --all
 ```
 
-`workspace archive` writes one ZIP of the selected trees. `--file` is resolved from the current directory. Paths inside the archive follow `projects[].path`, for example `mailion/search/pasifae/go.mod`, plus `_release-align/manifest.json` with the resolved commit for each repository. Each project path must be the worktree root; a subdirectory of another clone is rejected. Omit `--repo` and `--group` to pack every repository. The revision is the pin, or `default_branch` when there is no pin. Those names are resolved to commits from local refs before the first `git archive`. A local branch or the current HEAD is not substituted. There is no fetch, clone, or checkout. A missing clone or object stops the command, and the destination file is not created or replaced. `git archive` exports the committed tree, so uncommitted and untracked files stay out. Tracked files stay unless `.gitattributes` marks them `export-ignore`. Submodule contents are not downloaded; gitlinks are listed in the manifest. The archive is not a byte-identical promise and it is not a full build backup.
+`workspace archive` writes one ZIP of the selected trees. `--file` is resolved from the current directory. Paths inside the archive follow `projects[].path`, for example `mailion/search/pasifae/go.mod`, plus `_release-align/manifest.json` with the resolved commit for each repository. Each project path must be the worktree root; a subdirectory of another clone is rejected. Omit `--repo` and `--group` to pack every repository. The revision is the pin, or `defaults.revision` when there is no pin. Those names are resolved to commits from local refs before the first `git archive`. A local branch or the current HEAD is not substituted. There is no fetch, clone, or checkout. A missing clone or object stops the command, and the destination file is not created or replaced. `git archive` exports the committed tree, so uncommitted and untracked files stay out. Tracked files stay unless `.gitattributes` marks them `export-ignore`. Submodule contents are not downloaded; gitlinks are listed in the manifest. The archive is not a byte-identical promise and it is not a full build backup.
 
 `--remote` on `status` or on a sync checks the saved groups after the local operation and prints the difference. It does not clone and it does not change the workspace file. Without `--remote` the report says the inventory was not checked. `ready` counts selected workspace rows. Uncloned projects in the GitLab scope are a separate list, not a failed selection. Archived projects and projects shared in from outside the group are omitted. If the API does not return a complete list, the report says the catalog is unknown and does not claim that nothing is new. After a confirmed network failure or a cancel of the sync, the API is not asked again. If the branches were switched and the inventory request then fails, the message says both: alignment completed, inventory failed, nothing was cloned. The exit status is 1.
 

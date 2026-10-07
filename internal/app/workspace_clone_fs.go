@@ -65,7 +65,11 @@ func WriteCloneReport(w io.Writer, report *CloneReport) error {
 
 // publishClone appends completed new paths. It does not delete clones when the write fails.
 func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneReport, error) {
-	selected := cloneAdditions(items, j.report)
+	selected, err := cloneAdditions(items, j.report, j.spec.GitLab.CloneProtocol, j.opts.hooks)
+	if err != nil {
+		return publishCloneError(j.opts, j.report, err)
+	}
+
 	j.report.Next = nextSyncCommand(j.opts)
 
 	if len(selected) == 0 || ctx.Err() != nil {
@@ -95,7 +99,12 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 }
 
 // cloneAdditions builds workspace rows for completed projects that are not listed yet.
-func cloneAdditions(items []*cloneItem, report *CloneReport) []*ProjectSpec {
+func cloneAdditions(
+	items []*cloneItem,
+	report *CloneReport,
+	protocol string,
+	hooks *remoteHooks,
+) ([]*ProjectSpec, error) {
 	done := make(map[string]bool, len(report.Paths))
 	for _, path := range report.Paths {
 		done[path] = true
@@ -108,14 +117,20 @@ func cloneAdditions(items []*cloneItem, report *CloneReport) []*ProjectSpec {
 			continue
 		}
 
+		remote, err := chooseCloneURL(item.project, protocol, hooks)
+		if err != nil {
+			return nil, err
+		}
+
 		project := &ProjectSpec{
 			Path:   item.path,
+			URL:    remote,
 			Groups: directoryGroups(item.path),
 		}
 		selected = append(selected, project)
 	}
 
-	return selected
+	return selected, nil
 }
 
 // publishCloneError keeps the downloaded directories and names the recovery command.

@@ -19,6 +19,16 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 		return report, errConfigNil
 	}
 
+	client := &gitter.Client{
+		LocalTimeout: cfg.LocalTimeout,
+		NoLazyFetch:  true,
+	}
+	if err := ResolveWorkspaceRevisions(ctx, client, cfg.BaseDir, spec); err != nil {
+		report.Errors = []string{err.Error()}
+
+		return report, err
+	}
+
 	if err := PrepareRemote(cfg, spec); err != nil {
 		report.Errors = []string{err.Error()}
 		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, "", err.Error())

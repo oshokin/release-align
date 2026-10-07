@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,6 +34,8 @@ type workspaceScanner struct {
 	base string
 	// projects are the clones found so far.
 	projects []*ProjectSpec
+	// gaps are paths whose origin URL was not stored.
+	gaps []string
 }
 
 var (
@@ -73,7 +76,7 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		return nil, err
 	}
 
-	projects, err := discoverWorkspaceProjects(ctx, g, base)
+	projects, gaps, err := discoverWorkspaceProjects(ctx, g, base)
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +88,11 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       options.Release,
-		DefaultBranch: options.Branch,
-		Projects:      projects,
+		DefaultRevision: &RevisionSpec{
+			Branch: options.Branch,
+		},
+		Projects: projects,
+		URLGaps:  gaps,
 	}
 	if options.GitLabURL != "" || len(options.GitLabGroups) > 0 {
 		spec.GitLab = &GitLabSource{
@@ -110,7 +116,9 @@ func DiscoverWorkspaceProjects(ctx context.Context, g LocalGit, baseDir string) 
 		return nil, err
 	}
 
-	return discoverWorkspaceProjects(ctx, g, base)
+	projects, _, err := discoverWorkspaceProjects(ctx, g, base)
+
+	return projects, err
 }
 
 // canonicalWorkspaceBase resolves a directory that contains clones and is not followed past its real path.
@@ -138,7 +146,7 @@ func canonicalWorkspaceBase(baseDir string) (string, error) {
 }
 
 // discoverWorkspaceProjects walks one canonical base directory.
-func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) ([]*ProjectSpec, error) {
+func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) ([]*ProjectSpec, []string, error) {
 	scanner := &workspaceScanner{
 		git:      g,
 		base:     base,
@@ -157,14 +165,15 @@ func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) ([]
 		return scanner.visit(ctx, path, entry)
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	slices.SortFunc(scanner.projects, func(left, right *ProjectSpec) int {
 		return strings.Compare(left.Path, right.Path)
 	})
+	slices.Sort(scanner.gaps)
 
-	return scanner.projects, nil
+	return scanner.projects, scanner.gaps, nil
 }
 
 // visit prunes excluded directories and validates every discovered Git working tree.
@@ -203,7 +212,7 @@ func (s *workspaceScanner) visit(ctx context.Context, dir string, entry fs.DirEn
 
 // addProject checks the real repository root and origin before recording an exact relative path.
 func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
-	if err := confirmWorkspaceRoot(ctx, s.git, dir); err != nil {
+	if err := confirmWorktree(ctx, s.git, dir); err != nil {
 		return err
 	}
 
@@ -213,9 +222,18 @@ func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
 	}
 
 	projectPath := filepath.ToSlash(relative)
+
+	origin, originErr := readOriginURL(ctx, s.git, dir)
+	if originErr != nil {
+		origin = ""
+
+		s.gaps = append(s.gaps, projectPath)
+	}
+
 	project := &ProjectSpec{
 		Path:   projectPath,
 		Groups: directoryGroups(projectPath),
+		URL:    origin,
 	}
 	s.projects = append(s.projects, project)
 
@@ -238,6 +256,19 @@ func directoryGroups(projectPath string) []string {
 // confirmWorkspaceRoot checks the git marker, the real root, and a nonempty origin URL.
 // A missing .git marker is not os.ErrNotExist, so a present directory is not reported as deleted.
 func confirmWorkspaceRoot(ctx context.Context, g LocalGit, dir string) error {
+	if err := confirmWorktree(ctx, g, dir); err != nil {
+		return err
+	}
+
+	if _, err := readOriginURL(ctx, g, dir); err != nil {
+		return fmt.Errorf("%s: %w", dir, err)
+	}
+
+	return nil
+}
+
+// confirmWorktree checks the git marker and the real worktree root.
+func confirmWorktree(ctx context.Context, g LocalGit, dir string) error {
 	marker, err := os.Lstat(filepath.Join(dir, ".git"))
 	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%s: %w", dir, errWorkspaceListedInvalid)
@@ -270,16 +301,44 @@ func confirmWorkspaceRoot(ctx context.Context, g LocalGit, dir string) error {
 		return fmt.Errorf("%s: %w", dir, errWorkspaceRoot)
 	}
 
-	remote, err := g.Local(ctx, dir, "remote", "get-url", "origin")
-	if err != nil {
-		return fmt.Errorf("%s: %w: %w", dir, errWorkspaceInitOrigin, err)
-	}
-
-	if strings.TrimSpace(remote) == "" {
-		return fmt.Errorf("%s: %w", dir, errWorkspaceInitOrigin)
-	}
-
 	return nil
+}
+
+// readOriginURL returns a credential-free origin. The boolean reports that the URL was omitted.
+func readOriginURL(ctx context.Context, g LocalGit, dir string) (string, error) {
+	remote, err := g.Local(ctx, dir, "remote", "get-url", "origin")
+	if err != nil || strings.TrimSpace(remote) == "" {
+		return "", errWorkspaceInitOrigin
+	}
+
+	if !acceptableOrigin(remote) {
+		return "", errWorkspaceCredentialURL
+	}
+
+	return strings.TrimSpace(remote), nil
+}
+
+// acceptableOrigin rejects a password or an HTTPS userinfo. ssh://git@host stays.
+func acceptableOrigin(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\r\n\t ") {
+		return false
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return !strings.Contains(raw, "://")
+	}
+
+	if parsed.User == nil {
+		return true
+	}
+
+	if _, hasPassword := parsed.User.Password(); hasPassword {
+		return false
+	}
+
+	return parsed.Scheme != "http" && parsed.Scheme != "https"
 }
 
 // listedProjectMissing reports a workspace path whose directory is absent.

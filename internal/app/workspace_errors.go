@@ -98,16 +98,16 @@ var (
 	errWorkspaceRows = errors.New("report contains nil, duplicate or unexpected repository")
 	// errWorkspaceSize means the document is larger than 1 MiB.
 	errWorkspaceSize = errors.New("workspace exceeds 1 MiB")
-	// errWorkspaceJSON means the file is not one JSON object.
-	errWorkspaceJSON = errors.New("workspace must contain one JSON object")
-	// errWorkspaceNesting means JSON nesting exceeded the decoder limit.
-	errWorkspaceNesting = errors.New("JSON nesting exceeds 32 levels")
-	// errWorkspaceDelimiter means a JSON delimiter was unexpected.
-	errWorkspaceDelimiter = errors.New("unexpected JSON delimiter")
-	// errWorkspaceSchema means schema_version or projects is missing.
-	errWorkspaceSchema = errors.New("workspace requires schema_version=1 and nonempty projects")
-	// errWorkspaceDefaultBranch means default_branch is not a usable name.
-	errWorkspaceDefaultBranch = errors.New("invalid default_branch")
+	// errWorkspaceYAML means the file is not one YAML document.
+	errWorkspaceYAML = errors.New("workspace must be one YAML document")
+	// errWorkspaceNesting means YAML nesting exceeded the reader limit.
+	errWorkspaceNesting = errors.New("YAML nesting exceeds 32 levels")
+	// errWorkspaceSchema means the manifest has no projects or release-align.schema-version is wrong.
+	errWorkspaceSchema = errors.New(
+		"workspace requires a manifest with projects and release-align schema-version 1 when that block is present",
+	)
+	// errWorkspaceDefaultBranch means defaults.revision is not a usable revision.
+	errWorkspaceDefaultBranch = errors.New("invalid defaults.revision")
 	// errWorkspaceProjectPaths means a project path is empty, absolute, or duplicated.
 	errWorkspaceProjectPaths = errors.New("project paths must be nonempty, canonical, relative and unique")
 	// errWorkspaceRevisionMissing means a required revision was not set.
@@ -120,10 +120,32 @@ var (
 	errWorkspaceRevisionName = errors.New("invalid revision name")
 	// errWorkspaceExpectedPath means a selected path is not canonical.
 	errWorkspaceExpectedPath = errors.New("invalid expected path")
-	// errWorkspaceJSONKey means a JSON object repeated a key.
-	errWorkspaceJSONKey = errors.New("invalid or duplicate JSON key")
-	// errWorkspaceNoDefault means a project has neither a pin nor a default branch.
-	errWorkspaceNoDefault = errors.New("no revision or default_branch")
+	// errWorkspaceField means a YAML key is duplicated, unknown, or the wrong type.
+	errWorkspaceField = errors.New("invalid workspace field")
+	// errWorkspaceAnchor means a YAML anchor, alias, merge key, or custom tag was used.
+	errWorkspaceAnchor = errors.New("YAML anchors, aliases, merge keys, and custom tags are not supported")
+	// errWorkspaceImport means the manifest imports another file.
+	errWorkspaceImport = errors.New("manifest import is not supported; run west manifest --resolve and pass that file")
+	// errWorkspaceSubmodules means the manifest asks west to update submodules.
+	errWorkspaceSubmodules = errors.New("project submodules are not supported")
+	// errWorkspaceRevisionType means a revision was not a string.
+	errWorkspaceRevisionType = errors.New("revision must be a quoted string; a numeric value drops leading zeros")
+	// errWorkspaceRevisionShort means a short revision is not one local branch or tag.
+	errWorkspaceRevisionShort = errors.New("write refs/heads/<name>, refs/tags/<name>, or a full commit")
+	// errWorkspaceExtension means a new workspace file is not .yml or .yaml.
+	errWorkspaceExtension = errors.New("workspace file must use .yml or .yaml")
+	// errWorkspaceInactive means a requested project or group is disabled by group-filter.
+	errWorkspaceInactive = errors.New("project or group is disabled by manifest.group-filter")
+	// errWorkspaceName means a west project name is missing, duplicated, or contains a slash.
+	errWorkspaceName = errors.New("project name must be unique and must not contain a slash")
+	// errWorkspaceRemote means url and remote or repo-path were combined.
+	errWorkspaceRemote = errors.New("project url conflicts with remote or repo-path")
+	// errWorkspaceCredentialURL means an origin URL contained credentials.
+	errWorkspaceCredentialURL = errors.New("origin URL contains credentials; store a URL without a password or token")
+	// errCloneDepth means clone was asked to honor west clone-depth.
+	errCloneDepth = errors.New("clone-depth is recorded and not applied; remove it or clone that manifest with west")
+	// errWorkspaceNoDefault means a project has neither a pin nor an inherited revision.
+	errWorkspaceNoDefault = errors.New("no revision or defaults.revision")
 	// errWorkspaceGroup means a group name is invalid or duplicated.
 	errWorkspaceGroup = errors.New("invalid or duplicate group")
 	// errWorkspaceUnknownProject means a requested path is not in the file.
@@ -150,14 +172,14 @@ var (
 	errGitText = errors.New("git command failed")
 	// errGitLabSource means --remote or clone was asked for without a gitlab block.
 	errGitLabSource = errors.New(
-		`workspace has no gitlab source; add "gitlab": {"url":"https://gitlab.example","groups":["group"],"clone_protocol":"ssh"}`,
+		"workspace has no gitlab source; add release-align.gitlab with url, groups, and clone-protocol",
 	)
 	// errGitLabURL means the GitLab URL is not a bare HTTPS origin.
 	errGitLabURL = errors.New("gitlab url must be an https origin without a path, user, query, or fragment")
 	// errGitLabGroups means a group path is empty or not canonical.
 	errGitLabGroups = errors.New("gitlab groups must be nonempty canonical namespace paths")
-	// errGitLabProtocol means clone_protocol is neither ssh nor https.
-	errGitLabProtocol = errors.New("gitlab clone_protocol must be ssh or https")
+	// errGitLabProtocol means clone-protocol is neither ssh nor https.
+	errGitLabProtocol = errors.New("gitlab clone-protocol must be ssh or https")
 	// errRemoteDryRun means --dry-run was combined with --remote.
 	errRemoteDryRun = errors.New("--dry-run cannot be combined with --remote; use status --remote")
 	// errRemoteToken means GITLAB_TOKEN is empty.
@@ -185,7 +207,7 @@ var (
 	// errClonePublish means the workspace file was not written after clones finished.
 	errClonePublish = errors.New("workspace file was not updated; downloaded clones were kept")
 	// errCloneAlign means a new row would have no branch to align later.
-	errCloneAlign = errors.New("new project needs default_branch or an explicit revision")
+	errCloneAlign = errors.New("new project needs defaults.revision or an explicit revision")
 	// errArchiveFile means --file was omitted.
 	errArchiveFile = errors.New("archive file is required")
 	// errArchiveEmpty means the selection contains no repositories.

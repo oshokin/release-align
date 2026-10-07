@@ -128,7 +128,12 @@ func runCommand(cmd *cobra.Command, cfg *app.Config) error {
 func bindFlags(root *cobra.Command, cfg *app.Config) {
 	flags := root.Flags()
 	flags.StringVar(&cfg.BaseDir, "base-dir", cfg.BaseDir, "repository root directory")
-	flags.StringVar(&cfg.Branch, "branch", cfg.Branch, "replace default_branch; applied only when this flag is set")
+	flags.StringVar(
+		&cfg.Branch,
+		"branch",
+		cfg.Branch,
+		"replace defaults.revision for this run; applied only when this flag is set",
+	)
 	flags.IntVarP(&cfg.Jobs, "jobs", "j", cfg.Jobs, "parallel repositories (1..64)")
 	flags.IntVar(&cfg.Attempts, "attempts", cfg.Attempts, "total origin-check attempts, including the first")
 	flags.BoolVarP(
@@ -139,7 +144,7 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 		"offline preview using cached refs; do not change repositories",
 	)
 	flags.StringVarP(&cfg.LogLevel, "log-level", "l", cfg.LogLevel, "log level: debug, info, warn, error (any case)")
-	flags.StringVar(&cfg.WorkspaceFile, "workspace", "", "Workspace JSON; exact targets, required")
+	flags.StringVar(&cfg.WorkspaceFile, "workspace", "", "workspace YAML (.yml or .yaml); exact targets, required")
 	flags.StringArrayVar(&cfg.Repositories, "repo", nil, "Select a workspace project by its relative path; repeatable")
 	flags.StringArrayVar(&cfg.Groups, "group", nil, "Select a workspace group; repeatable")
 	flags.StringVar(&cfg.Output, "output", cfg.Output, "Output format: text or json")

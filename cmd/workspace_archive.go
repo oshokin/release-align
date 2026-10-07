@@ -33,9 +33,10 @@ func newWorkspaceArchiveCommand() *cobra.Command {
 		Short: "Pack workspace revisions into one ZIP",
 		Long: "Requires --workspace, --base-dir, and --file.\n" +
 			"Without --repo and --group, every repository in the workspace is packed.\n" +
-			"Revisions come from each pin, or from default_branch. The command does not fetch or check out.\n" +
-			"Uncommitted changes are not included. An existing --file is left unchanged.\n\n" +
-			"  release-align workspace archive --workspace ./mailion.workspace.json --base-dir \"$BASE_DIR\" --group mailion/search --file ./mailion-search.zip",
+			"Revisions come from each pin, or from defaults.revision. The command does not fetch or check out.\n" +
+			"Uncommitted changes are not included. An existing --file is left unchanged.\n" +
+			"A path that is not the GitLab namespace is not cloned here.\n\n" +
+			"  release-align workspace archive --workspace ./release-align.yml --base-dir \"$BASE_DIR\" --group mailion/search --file ./mailion-search.zip",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -48,7 +49,7 @@ func newWorkspaceArchiveCommand() *cobra.Command {
 		}
 	})
 	flags := command.Flags()
-	flags.StringVar(&options.WorkspaceFile, "workspace", "", "workspace JSON (required)")
+	flags.StringVar(&options.WorkspaceFile, "workspace", "", "workspace YAML (.yml or .yaml, required)")
 	flags.StringVar(&options.BaseDir, "base-dir", "", "directory containing the clones (required)")
 	flags.StringVar(&options.File, "file", "", "destination ZIP; must not already exist (required)")
 	flags.StringArrayVar(&options.Repositories, "repo", nil, "exact workspace path; repeatable")

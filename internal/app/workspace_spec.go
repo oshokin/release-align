@@ -1,171 +1,130 @@
 package app
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
 )
 
-// WorkspaceSpec is the project inventory.
+// WorkspaceSpec is the project inventory loaded from a YAML manifest.
 type WorkspaceSpec struct {
-	// SchemaVersion is the workspace document version.
-	SchemaVersion int `json:"schema_version"`
+	// SchemaVersion is the release-align document version. A plain manifest still uses 1.
+	SchemaVersion int
 	// Release is an optional label stored with the inventory.
-	Release string `json:"release,omitempty"`
-	// DefaultBranch is used when a project has no pinned revision.
-	DefaultBranch string `json:"default_branch,omitempty"`
+	Release string
+	// DefaultRevision is the inherited revision. Nil with implicitMaster means west's master.
+	DefaultRevision *RevisionSpec
+	// shortDefault is a defaults.revision that still needs a local ref lookup.
+	shortDefault string
+	// implicitMaster reports that the file omitted defaults.revision, so west's master applies.
+	implicitMaster bool
 	// GitLab is the optional server scope for --remote and workspace clone.
-	GitLab *GitLabSource `json:"gitlab,omitempty"`
+	GitLab *GitLabSource
 	// Timeouts holds optional duration overrides. Omitted fields keep the program defaults.
-	Timeouts *WorkspaceTimeouts `json:"timeouts,omitempty"`
-	// Projects are the selected repositories in file order.
-	Projects []*ProjectSpec `json:"projects"`
+	Timeouts *WorkspaceTimeouts
+	// GroupFilter is the west group-filter in file order. Nil leaves every group enabled.
+	GroupFilter []*GroupFilter
+	// Projects are the repositories in file order, including inactive ones.
+	Projects []*ProjectSpec
+	// URLGaps lists paths whose origin URL was left empty.
+	URLGaps []string
+}
+
+// GroupFilter is one west group-filter entry. The last entry for a name wins.
+type GroupFilter struct {
+	// Name is the group without a leading sign.
+	Name string
+	// Disable reports that this entry turns the group off.
+	Disable bool
 }
 
 // GitLabSource is the optional server scope used by --remote and workspace clone.
-// It is not inferred from project groups. An old binary cannot read a file that contains it.
+// It is not inferred from project groups.
 type GitLabSource struct {
 	// URL is the HTTPS origin of one GitLab host.
-	URL string `json:"url"`
+	URL string
 	// Groups are exact namespace paths. Subgroups are included.
-	Groups []string `json:"groups"`
+	Groups []string
 	// CloneProtocol is ssh or https. Empty means ssh.
-	CloneProtocol string `json:"clone_protocol,omitempty"`
+	CloneProtocol string
 }
 
 // ProjectSpec is one repository path, its groups, and an optional exact revision.
 type ProjectSpec struct {
+	// Name is the unique west project name. It is not the --repo selector.
+	Name string
 	// Path is the repository path relative to the base directory.
-	Path string `json:"path"`
+	Path string
+	// URL is the clone URL recorded for west. Empty means it was not known.
+	URL string
 	// Groups are directory prefixes used by --group. They are not GitLab groups.
-	Groups []string `json:"groups,omitempty"`
-	// Revision pins one branch, tag, or commit. Nil uses the workspace default branch.
-	Revision *RevisionSpec `json:"revision,omitempty"`
+	Groups []string
+	// Revision pins one branch, tag, or commit. Nil uses the workspace default.
+	Revision *RevisionSpec
+	// shortRevision is a project revision that still needs a local ref lookup.
+	shortRevision string
+	// CloneDepth is west metadata. workspace clone refuses a file that sets it.
+	CloneDepth *int
 }
 
 // RevisionSpec has exactly one of branch, tag, commit.
 type RevisionSpec struct {
-	// Branch is a branch name to check out.
-	Branch string `json:"branch,omitempty"`
-	// Tag is a tag name to check out.
-	Tag string `json:"tag,omitempty"`
+	// Branch is a branch name to check out, without refs/heads/.
+	Branch string
+	// Tag is a tag name to check out, without refs/tags/.
+	Tag string
 	// Commit is a full commit id to check out.
-	Commit string `json:"commit,omitempty"`
+	Commit string
 }
 
-// workspaceMaxBytes is the largest workspace document the decoder accepts.
-const workspaceMaxBytes = 1 << 20
+const (
+	// workspaceMaxBytes is the largest workspace document the decoder accepts.
+	workspaceMaxBytes = 1 << 20
+	// westDefaultBranch is the revision west uses when a manifest omits one.
+	westDefaultBranch = "master"
+	// yamlNestLimit is the deepest mapping or sequence the reader accepts.
+	yamlNestLimit = 32
+)
 
 // workspaceOID matches a full Git object id of 40 or 64 hex digits.
 var workspaceOID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
-// DecodeWorkspace parses one workspace document and rejects duplicate keys.
-func DecodeWorkspace(src io.Reader) (*WorkspaceSpec, error) {
-	data, err := io.ReadAll(io.LimitReader(src, workspaceMaxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-
-	if len(data) > workspaceMaxBytes {
-		return nil, errWorkspaceSize
-	}
-	// encoding/json otherwise accepts repeated keys using the last value.
-	if err = uniqueJSONKeys(json.NewDecoder(bytes.NewReader(data)), 0); err != nil {
-		return nil, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-
-	var spec *WorkspaceSpec
-
-	if err = dec.Decode(&spec); err != nil {
-		return nil, err
-	}
-
-	var trailing any
-
-	if err = dec.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return nil, errWorkspaceJSON
-	}
-
-	if err = spec.Validate(); err != nil {
-		return nil, err
-	}
-
-	return spec, nil
-}
-
-// LoadWorkspace reads one bounded workspace document from filename.
-func LoadWorkspace(filename string) (*WorkspaceSpec, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	defer file.Close()
-
-	loaded, err := DecodeWorkspace(file)
-	if err != nil {
-		return nil, err
-	}
-
-	return loaded, nil
-}
-
-// RevisionFor returns the project revision or the workspace default branch.
+// RevisionFor returns the project pin or the inherited revision.
+// A short west name is filled in by ResolveWorkspaceRevisions before this is used.
 func (w *WorkspaceSpec) RevisionFor(p *ProjectSpec) *RevisionSpec {
-	if p.Revision == nil {
+	if p != nil && p.Revision != nil {
+		return p.Revision.clone()
+	}
+
+	if w != nil && w.DefaultRevision != nil {
+		return w.DefaultRevision.clone()
+	}
+
+	if w != nil && w.implicitMaster {
 		return &RevisionSpec{
-			Branch: w.DefaultBranch,
+			Branch: westDefaultBranch,
 		}
 	}
 
-	return &RevisionSpec{
-		Branch: p.Revision.Branch,
-		Tag:    p.Revision.Tag,
-		Commit: p.Revision.Commit,
-	}
+	return nil
 }
 
-// SelectProjects uses a union of explicit paths and groups. Empty filters select all.
-// Returned pointers share immutable configuration with w.
+// SelectProjects uses a union of explicit paths and groups on the active projects.
+// Empty filters select every active project. Inactive projects stay in the file.
+// Returned pointers share configuration with w.
 func (w *WorkspaceSpec) SelectProjects(paths, groups []string) ([]*ProjectSpec, error) {
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
-	knownPaths, knownGroups := make(map[string]bool), make(map[string]bool)
-	for _, p := range w.Projects {
-		knownPaths[p.Path] = true
-		for _, group := range p.Groups {
-			knownGroups[group] = true
-		}
+
+	if err := w.checkSelection(paths, groups); err != nil {
+		return nil, err
 	}
 
-	for _, name := range paths {
-		if !knownPaths[name] {
-			return nil, fmt.Errorf("%w: %q", errWorkspaceUnknownProject, name)
-		}
-	}
-
-	for _, name := range groups {
-		if !knownGroups[name] {
-			return nil, fmt.Errorf("%w: %q", errWorkspaceUnknownGroup, name)
-		}
-	}
 	selected := make([]*ProjectSpec, 0, len(w.Projects))
 	for _, p := range w.Projects {
-		include := len(paths)+len(groups) == 0 || slices.Contains(paths, p.Path)
-		for _, group := range groups {
-			include = include || slices.Contains(p.Groups, group)
-		}
-
-		if include {
+		if w.projectActive(p) && projectSelected(p, paths, groups) {
 			selected = append(selected, p)
 		}
 	}
@@ -173,6 +132,42 @@ func (w *WorkspaceSpec) SelectProjects(paths, groups []string) ([]*ProjectSpec, 
 	slices.SortFunc(selected, func(a, b *ProjectSpec) int { return strings.Compare(a.Path, b.Path) })
 
 	return selected, nil
+}
+
+// disabledGroups applies group-filter in order. The last entry for a name wins.
+func disabledGroups(filters []*GroupFilter) map[string]bool {
+	disabled := make(map[string]bool)
+
+	for _, filter := range filters {
+		if filter == nil {
+			continue
+		}
+
+		if filter.Disable {
+			disabled[filter.Name] = true
+
+			continue
+		}
+
+		delete(disabled, filter.Name)
+	}
+
+	return disabled
+}
+
+// projectSelected reports that the CLI filters include one active project.
+func projectSelected(project *ProjectSpec, paths, groups []string) bool {
+	if len(paths)+len(groups) == 0 || slices.Contains(paths, project.Path) {
+		return true
+	}
+
+	for _, group := range groups {
+		if slices.Contains(project.Groups, group) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // WithDefaultBranch returns a copy whose implicit branch is branch.
@@ -183,7 +178,11 @@ func (w *WorkspaceSpec) WithDefaultBranch(branch string) (*WorkspaceSpec, error)
 	}
 
 	next := w.clone()
-	next.DefaultBranch = branch
+	next.DefaultRevision = &RevisionSpec{
+		Branch: branch,
+	}
+	next.shortDefault = ""
+	next.implicitMaster = false
 
 	if err := next.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errWorkspaceBranchOverride, err)
@@ -204,13 +203,102 @@ func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 	}
 
 	return &WorkspaceSpec{
-		SchemaVersion: w.SchemaVersion,
-		Release:       w.Release,
-		DefaultBranch: w.DefaultBranch,
-		GitLab:        w.GitLab.clone(),
-		Timeouts:      w.Timeouts.clone(),
-		Projects:      projects,
+		SchemaVersion:   w.SchemaVersion,
+		Release:         w.Release,
+		DefaultRevision: w.DefaultRevision.clone(),
+		shortDefault:    w.shortDefault,
+		implicitMaster:  w.implicitMaster,
+		GitLab:          w.GitLab.clone(),
+		Timeouts:        w.Timeouts.clone(),
+		GroupFilter:     cloneGroupFilters(w.GroupFilter),
+		Projects:        projects,
+		URLGaps:         slices.Clone(w.URLGaps),
 	}
+}
+
+// hasDefault reports that an unpinned project has a revision to inherit.
+func (w *WorkspaceSpec) hasDefault() bool {
+	return w != nil && (w.DefaultRevision != nil || w.shortDefault != "" || w.implicitMaster)
+}
+
+// checkSelection rejects unknown selectors and an explicit inactive project or group.
+func (w *WorkspaceSpec) checkSelection(paths, groups []string) error {
+	knownPaths := make(map[string]*ProjectSpec, len(w.Projects))
+	knownGroups := make(map[string]bool)
+	activeGroups := make(map[string]bool)
+
+	for _, p := range w.Projects {
+		knownPaths[p.Path] = p
+		active := w.projectActive(p)
+
+		for _, group := range p.Groups {
+			knownGroups[group] = true
+			if active {
+				activeGroups[group] = true
+			}
+		}
+	}
+
+	for _, name := range paths {
+		project, ok := knownPaths[name]
+		if !ok {
+			return fmt.Errorf("%w: %q", errWorkspaceUnknownProject, name)
+		}
+
+		if !w.projectActive(project) {
+			return fmt.Errorf("%w: %q", errWorkspaceInactive, name)
+		}
+	}
+
+	for _, name := range groups {
+		if !knownGroups[name] {
+			return fmt.Errorf("%w: %q", errWorkspaceUnknownGroup, name)
+		}
+
+		if !activeGroups[name] {
+			return fmt.Errorf("%w: %q", errWorkspaceInactive, name)
+		}
+	}
+
+	return nil
+}
+
+// projectActive reports that group-filter leaves the project enabled.
+// A project with no groups stays active.
+func (w *WorkspaceSpec) projectActive(project *ProjectSpec) bool {
+	if project == nil || len(project.Groups) == 0 {
+		return project != nil
+	}
+
+	disabled := disabledGroups(w.GroupFilter)
+	for _, group := range project.Groups {
+		if !disabled[group] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// cloneGroupFilters copies the group-filter list.
+func cloneGroupFilters(filters []*GroupFilter) []*GroupFilter {
+	if filters == nil {
+		return nil
+	}
+
+	out := make([]*GroupFilter, len(filters))
+	for i, filter := range filters {
+		if filter == nil {
+			continue
+		}
+
+		out[i] = &GroupFilter{
+			Name:    filter.Name,
+			Disable: filter.Disable,
+		}
+	}
+
+	return out
 }
 
 // clone returns an independent GitLab source, including its group slice.
@@ -233,10 +321,25 @@ func (p *ProjectSpec) clone() *ProjectSpec {
 	}
 
 	return &ProjectSpec{
-		Path:     p.Path,
-		Groups:   slices.Clone(p.Groups),
-		Revision: p.Revision.clone(),
+		Name:          p.Name,
+		Path:          p.Path,
+		URL:           p.URL,
+		Groups:        slices.Clone(p.Groups),
+		Revision:      p.Revision.clone(),
+		shortRevision: p.shortRevision,
+		CloneDepth:    cloneDepth(p.CloneDepth),
 	}
+}
+
+// cloneDepth copies one optional west clone-depth.
+func cloneDepth(depth *int) *int {
+	if depth == nil {
+		return nil
+	}
+
+	value := *depth
+
+	return &value
 }
 
 // clone returns an independent revision.

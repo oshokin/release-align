@@ -21,24 +21,35 @@ var rejectedProjectPaths = []string{
 	"a/..",
 }
 
-// TestWorkspaceDecodeRejectsAmbiguity verifies that ambiguous or duplicate workspace JSON is rejected.
+// TestWorkspaceDecodeRejectsAmbiguity verifies that ambiguous or duplicate workspace YAML is rejected.
 func TestWorkspaceDecodeRejectsAmbiguity(t *testing.T) {
-	valid := `{"schema_version":1,"default_branch":"Release-26.3.0","projects":[{"path":"search/mailbek","groups":["search"]}]}`
+	valid := "" +
+		"manifest:\n" +
+		"  defaults:\n" +
+		"    revision: refs/heads/Release-26.3.0\n" +
+		"  projects:\n" +
+		"    - name: mailbek\n" +
+		"      path: search/mailbek\n" +
+		"      groups: [search]\n" +
+		"release-align:\n" +
+		"  schema-version: 1\n"
 	w, err := DecodeWorkspace(strings.NewReader(valid))
 
 	if err != nil || w.RevisionFor(w.Projects[0]).Branch != "Release-26.3.0" {
 		t.Fatalf("decode: %+v %v", w, err)
 	}
 	cases := []string{
-		`null`, `{}`, valid + `{}`,
-		strings.Replace(valid, `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1),
-		strings.Replace(valid, `"path":"search/mailbek"`, `"path":"a/b","path":"search/mailbek"`, 1),
-		strings.Replace(valid, `"schema_version":1`, `"schema_version":1,"typo":true`, 1),
-		strings.Replace(valid, `"groups":["search"]`, `"groups":["search","search"]`, 1),
-		`{"schema_version":1,"projects":[{"path":"a/b","revision":{"branch":"main","tag":"v1"}}]}`,
-		`{"schema_version":1,"projects":[{"path":"a/b","revision":{"commit":"deadbeef"}}]}`,
-		`{"schema_version":1,"projects":[null]}`,
-		`{"schema_version":1,"default_branch":"main","projects":[{"path":"a/b"},{"path":"a/b"}]}`,
+		"null\n",
+		"{}\n",
+		valid + "---\n{}\n",
+		strings.Replace(valid, "  schema-version: 1\n", "  schema-version: 1\n  schema-version: 1\n", 1),
+		strings.Replace(valid, "path: search/mailbek\n", "path: a/b\n      path: search/mailbek\n", 1),
+		strings.Replace(valid, "schema-version: 1\n", "schema-version: 1\n  typo: true\n", 1),
+		strings.Replace(valid, "groups: [search]\n", "groups: [search, search]\n", 1),
+		"manifest:\n  projects:\n    - name: b\n      path: a/b\n      revision: not a ref~\n",
+		"manifest:\n  projects:\n    - name: b\n      path: a/b\n      revision: 1\n",
+		"manifest:\n  projects:\n    - null\n",
+		"manifest:\n  defaults:\n    revision: refs/heads/main\n  projects:\n    - name: b\n      path: a/b\n    - name: c\n      path: a/b\n",
 	}
 	for _, input := range cases {
 		if _, err = DecodeWorkspace(strings.NewReader(input)); err == nil {
@@ -60,7 +71,9 @@ func TestWorkspacePathsAndSelections(t *testing.T) {
 	}
 	w := &WorkspaceSpec{
 		SchemaVersion: 1,
-		DefaultBranch: "main",
+		DefaultRevision: &RevisionSpec{
+			Branch: "main",
+		},
 		Projects: []*ProjectSpec{
 			{
 				Path:   "search/mailbek",

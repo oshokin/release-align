@@ -204,6 +204,14 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 		return nil, err
 	}
 
+	gitClient := &gitter.Client{
+		LocalTimeout: opts.LocalTimeout,
+		NoLazyFetch:  true,
+	}
+	if err = ResolveWorkspaceRevisions(ctx, gitClient, base, spec); err != nil {
+		return nil, err
+	}
+
 	selected, err := spec.SelectProjects(opts.Repositories, opts.Groups)
 	if err != nil {
 		return nil, err
@@ -223,10 +231,7 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 		spec:        spec,
 		base:        base,
 		destination: destination,
-		git: &gitter.Client{
-			LocalTimeout: opts.LocalTimeout,
-			NoLazyFetch:  true,
-		},
+		git:         gitClient,
 	}, nil
 }
 
