@@ -77,20 +77,10 @@ func (c *Config) JSON() bool {
 	return c != nil && c.Output == outputJSON
 }
 
-// DefaultConfig returns the built-in paths, timeouts, and output format.
+// DefaultConfig returns the built-in timeouts and output format.
+// The base directory comes from the flag, RELEASE_ALIGN_BASE_DIR, or the workspace file.
 func DefaultConfig() *Config {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = ""
-	}
-
 	return &Config{
-		BaseDir: filepath.Join(
-			home,
-			"go",
-			"src",
-			"gitlab.stageoffice.ru",
-		),
 		Branch:         "master",
 		Jobs:           4,
 		Attempts:       3,

@@ -31,12 +31,13 @@ func newWorkspaceArchiveCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "archive",
 		Short: "Pack workspace revisions into one ZIP",
-		Long: "Requires --workspace, --base-dir, and --file.\n" +
+		Long: "Requires --file, the destination ZIP.\n" +
+			"--workspace defaults to release-align.yml. An omitted --base-dir uses release-align.base-dir from that file.\n" +
 			"Without --repo and --group, every repository in the workspace is packed.\n" +
 			"Revisions come from each pin, or from defaults.revision. The command does not fetch or check out.\n" +
 			"Uncommitted changes are not included. An existing --file is left unchanged.\n" +
 			"A path that is not the GitLab namespace is not cloned here.\n\n" +
-			"  release-align workspace archive --workspace ./release-align.yml --base-dir \"$BASE_DIR\" --group mailion/search --file ./mailion-search.zip",
+			"  release-align workspace archive --workspace ./release-align.yml --base-dir \"$RELEASE_ALIGN_BASE_DIR\" --group lamiona/search --file ./lamiona-search.zip",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -49,8 +50,8 @@ func newWorkspaceArchiveCommand() *cobra.Command {
 		}
 	})
 	flags := command.Flags()
-	flags.StringVar(&options.WorkspaceFile, "workspace", "", "workspace YAML (.yml or .yaml, required)")
-	flags.StringVar(&options.BaseDir, "base-dir", "", "directory containing the clones (required)")
+	flags.StringVar(&options.WorkspaceFile, "workspace", defaultWorkspaceFile, "workspace YAML (.yml or .yaml)")
+	flags.StringVar(&options.BaseDir, "base-dir", "", "directory containing the clones; omitted flag uses the file")
 	flags.StringVar(&options.File, "file", "", "destination ZIP; must not already exist (required)")
 	flags.StringArrayVar(&options.Repositories, "repo", nil, "exact workspace path; repeatable")
 	flags.StringArrayVar(&options.Groups, "group", nil, "workspace group; repeatable")
@@ -80,8 +81,21 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 		}
 	}
 
-	cfg := archiveEnvConfig(c.options)
-	if err := applyCommandEnv(command, cfg); err != nil {
+	choice := &baseDirChoice{
+		command:   command,
+		workspace: c.options.WorkspaceFile,
+		current:   c.options.BaseDir,
+	}
+
+	base, err := savedBaseDir(choice)
+	if err != nil {
+		return c.archiveCommandError(err)
+	}
+
+	c.options.BaseDir = base
+
+	cfg := c.archiveEnvConfig()
+	if err = applyCommandEnv(command, cfg); err != nil {
 		return &commandError{
 			code:  exitUsage,
 			cause: err,
@@ -103,10 +117,10 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 	}
 
 	if c.options.Output == cloneOutputText && app.ExitCodeForWorkspace(err) == exitUsage {
-		return archiveCommandError(err)
+		return c.archiveCommandError(err)
 	}
 
-	writeErr := writeArchiveReport(command, c.options, report)
+	writeErr := c.writeArchiveReport(command, report)
 	if writeErr != nil {
 		return &commandError{
 			code:  exitFailed,
@@ -114,26 +128,22 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 		}
 	}
 
-	return archiveCommandError(err)
+	return c.archiveCommandError(err)
 }
 
 // archiveEnvConfig carries archive timeouts into the shared environment reader and back.
-func archiveEnvConfig(opts *app.WorkspaceArchiveOptions) *app.Config {
+func (c *workspaceArchiveCommand) archiveEnvConfig() *app.Config {
 	cfg := app.DefaultConfig()
-	cfg.LocalTimeout = opts.LocalTimeout
-	cfg.ArchiveTimeout = opts.ArchiveTimeout
-	cfg.Output = opts.Output
+	cfg.LocalTimeout = c.options.LocalTimeout
+	cfg.ArchiveTimeout = c.options.ArchiveTimeout
+	cfg.Output = c.options.Output
 
 	return cfg
 }
 
 // writeArchiveReport writes JSON to stdout or the text summary.
-func writeArchiveReport(
-	command *cobra.Command,
-	opts *app.WorkspaceArchiveOptions,
-	report *app.ArchiveReport,
-) error {
-	if opts.Output == cloneOutputJSON {
+func (c *workspaceArchiveCommand) writeArchiveReport(command *cobra.Command, report *app.ArchiveReport) error {
+	if c.options.Output == cloneOutputJSON {
 		return app.WriteArchiveReport(command.OutOrStdout(), report)
 	}
 
@@ -141,9 +151,16 @@ func writeArchiveReport(
 }
 
 // archiveCommandError maps archive failures onto process statuses.
-func archiveCommandError(err error) error {
+func (*workspaceArchiveCommand) archiveCommandError(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	if errors.Is(err, errBaseDirMissing) || errors.Is(err, errBaseDirChoice) {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
 	}
 
 	code := app.ExitCodeForWorkspace(err)

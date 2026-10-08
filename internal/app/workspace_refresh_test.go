@@ -21,7 +21,7 @@ func TestRefreshPreviewSeesNewClone(t *testing.T) {
 	before := readBytes(t, file)
 	stamp := setPastMtime(t, file)
 	snapshot := localGitSnapshot(t, f.repo)
-	rel := cloneRel(t, f, "mailion/search/new-indexer")
+	rel := cloneRel(t, f, "lamiona/search/new-indexer")
 	added := localGitSnapshot(t, filepath.Join(f.base, filepath.FromSlash(rel)))
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
@@ -32,7 +32,7 @@ func TestRefreshPreviewSeesNewClone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantGroups := []string{"mailion", "mailion/search"}
+	wantGroups := []string{"lamiona", "lamiona/search"}
 	if result.Written || len(result.Unlisted) != 1 || result.Unlisted[0].Path != rel ||
 		!reflect.DeepEqual(result.Unlisted[0].Groups, wantGroups) || len(result.Missing) != 0 {
 		t.Fatalf("%+v", result)
@@ -56,7 +56,7 @@ func TestRefreshPreviewSeesNewClone(t *testing.T) {
 func TestRefreshAddOneOfTwo(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
-	first := cloneRel(t, f, "mailion/search/new-indexer")
+	first := cloneRel(t, f, "lamiona/search/new-indexer")
 	second := cloneRel(t, f, "experiments/sandbox")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
@@ -84,7 +84,7 @@ func TestRefreshAddOneOfTwo(t *testing.T) {
 func TestRefreshAddAllIsIdempotent(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
-	rel := cloneRel(t, f, "mailion/search/new-indexer")
+	rel := cloneRel(t, f, "lamiona/search/new-indexer")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
 		AddAll:  true,
@@ -127,7 +127,7 @@ func TestRefreshPreservesManualIntent(t *testing.T) {
 	}
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		Release:       "Mailion 26.3",
+		Release:       "Lamiona 26.3",
 		DefaultRevision: &RevisionSpec{
 			Branch: "master",
 		},
@@ -166,7 +166,7 @@ func TestRefreshKeepsMissingPath(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
 	before := readBytes(t, file)
-	rel := cloneRel(t, f, "mailion/search/moved")
+	rel := cloneRel(t, f, "lamiona/search/moved")
 
 	if err := os.RemoveAll(f.repo); err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestRefreshKeepsMissingPath(t *testing.T) {
 func TestStatusIgnoresUnlistedClone(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
-	rel := cloneRel(t, f, "mailion/search/new-indexer")
+	rel := cloneRel(t, f, "lamiona/search/new-indexer")
 
 	spec, err := LoadWorkspace(file)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestRefreshOmittedDefaultInheritsMaster(t *testing.T) {
 	spec := oneProject(t, "group/repo with spaces", revision)
 	spec.DefaultRevision = nil
 	file := saveWorkspace(t, spec)
-	rel := cloneRel(t, f, "mailion/search/new-indexer")
+	rel := cloneRel(t, f, "lamiona/search/new-indexer")
 	preview := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
 	}
@@ -311,7 +311,7 @@ func TestRefreshRejectsUnsafeSelection(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
 	before := readBytes(t, file)
-	rel := cloneRel(t, f, "mailion/search/new-indexer")
+	rel := cloneRel(t, f, "lamiona/search/new-indexer")
 	cases := []*WorkspaceRefreshOptions{
 		{
 			BaseDir: f.base,
@@ -429,7 +429,7 @@ func TestRefreshLockRejectsASecondWriter(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
 	before := readBytes(t, file)
-	cloneRel(t, f, "mailion/search/new-indexer")
+	cloneRel(t, f, "lamiona/search/new-indexer")
 
 	path, err := canonicalWorkspaceFilename(file)
 	if err != nil {
@@ -469,7 +469,7 @@ func TestRefreshLockRejectsASecondWriter(t *testing.T) {
 func TestRefreshRefusesExternalEdit(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
-	cloneRel(t, f, "mailion/search/new-indexer")
+	cloneRel(t, f, "lamiona/search/new-indexer")
 	user := []byte("user edit\n")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
@@ -520,7 +520,7 @@ func TestRefreshCanceledScanDoesNotWrite(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
 	before := readBytes(t, file)
-	cloneRel(t, f, "mailion/search/new-indexer")
+	cloneRel(t, f, "lamiona/search/new-indexer")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	options := &WorkspaceRefreshOptions{

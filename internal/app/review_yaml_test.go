@@ -26,12 +26,14 @@ func TestReviewYAMLSelectedRevisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	f.cfg.Groups = []string{"chosen"}
 	report, err := RunWorkspace(t.Context(), f.cfg, spec, ModeStatus)
 
 	if err != nil || !report.Ready || report.ExpectedCount != 1 {
 		t.Fatalf("status: %+v, %v", report, err)
 	}
+
 	opts := archiveOpts(f, file, filepath.Join(t.TempDir(), "selected.zip"), nil, []string{"chosen"})
 	if _, err = ArchiveWorkspace(t.Context(), opts); err != nil {
 		t.Fatal("archive:", err)
@@ -58,6 +60,7 @@ func TestReviewYAMLRefreshMissingShortRevision(t *testing.T) {
 	if err != nil || !report.Written || len(report.Added) != 1 {
 		t.Fatalf("append: %+v, %v", report, err)
 	}
+
 	spec, err := LoadWorkspace(file)
 	if err != nil || spec.shortDefault != "master" || spec.Projects[0].Revision != nil {
 		t.Fatal("refresh changed inheritance", err)
@@ -109,6 +112,7 @@ func TestReviewYAMLRemoteBranchAndOverride(t *testing.T) {
 	if got := spec.RevisionFor(spec.Projects[0]); got == nil || got.Branch != "master" {
 		t.Fatalf("resolved: %+v", got)
 	}
+
 	overridden, err := spec.WithDefaultBranch("Release-26.3.0")
 	if err != nil || overridden.RevisionFor(overridden.Projects[0]).Branch != "Release-26.3.0" {
 		t.Fatal("lookup converted inherited default into a pin", err)
@@ -175,6 +179,7 @@ func TestReviewYAMLFreshEncodingPreservesIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	file := saveWorkspace(t, spec)
 	loaded, err := LoadWorkspace(file)
 
@@ -288,6 +293,7 @@ foreign-tool:
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	addition := &ProjectSpec{
 		Path: "group/new",
 	}
@@ -308,10 +314,12 @@ foreign-tool:
 	if err = yaml.Unmarshal([]byte(body), &before); err != nil {
 		t.Fatal(err)
 	}
+
 	written := readBytes(t, file)
 	if err = yaml.Unmarshal(written, &after); err != nil {
 		t.Fatal(err)
 	}
+
 	// The only semantic change is one appended project.
 	afterManifest, ok := after["manifest"].(map[string]any)
 	if !ok {
@@ -326,12 +334,14 @@ foreign-tool:
 	if len(projects) != 2 {
 		t.Fatal(projects)
 	}
+
 	afterManifest["projects"] = projects[:1]
 
 	beforeBytes, err := yaml.Marshal(before)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	afterBytes, err := yaml.Marshal(after)
 	if err != nil || string(beforeBytes) != string(afterBytes) ||
 		!strings.Contains(string(written), "# workspace comment") {

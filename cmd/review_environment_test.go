@@ -25,7 +25,7 @@ func TestReviewWorkspaceIgnoresLegacyEnvironment(t *testing.T) {
 
 // TestReviewExplicitFlagOverridesInvalidEnvironment verifies flags win before environment parsing.
 func TestReviewExplicitFlagOverridesInvalidEnvironment(t *testing.T) {
-	t.Setenv("JOBS", "invalid")
+	t.Setenv("RELEASE_ALIGN_JOBS", "invalid")
 
 	var out, errOut bytes.Buffer
 
@@ -48,7 +48,7 @@ func TestReviewExplicitFlagOverridesInvalidEnvironment(t *testing.T) {
 
 // TestReviewEnvironmentFailureHasJSONEnvelope verifies a post-parse usage error is machine-readable.
 func TestReviewEnvironmentFailureHasJSONEnvelope(t *testing.T) {
-	t.Setenv("JOBS", "invalid")
+	t.Setenv("RELEASE_ALIGN_JOBS", "invalid")
 
 	var out, errOut bytes.Buffer
 

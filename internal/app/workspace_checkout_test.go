@@ -144,10 +144,10 @@ func TestWorkspaceBranchOverrideKeepsExplicitRevision(t *testing.T) {
 		},
 		Projects: []*ProjectSpec{
 			{
-				Path: "search/pasifae",
+				Path: "search/calyra",
 			},
 			{
-				Path: "storage/dos",
+				Path: "storage/pebblebox",
 				Revision: &RevisionSpec{
 					Tag: "v4.499.6",
 				},

@@ -48,7 +48,7 @@ func TestListProjectsPaginatesAndDedupes(t *testing.T) {
 		for id := start + 1; id <= end; id++ {
 			project := &Project{
 				ID:                id,
-				PathWithNamespace: "mailion/svc-" + strconv.Itoa(id),
+				PathWithNamespace: "lamiona/svc-" + strconv.Itoa(id),
 				DefaultBranch:     "master",
 			}
 			batch = append(batch, project)
@@ -60,7 +60,7 @@ func TestListProjectsPaginatesAndDedupes(t *testing.T) {
 
 	client := testClient(server.URL, server.Client())
 	client.Attempts = 1
-	projects, err := client.ListProjects(context.Background(), []string{"mailion"})
+	projects, err := client.ListProjects(context.Background(), []string{"lamiona"})
 
 	if err != nil || len(projects) != 101 || calls.Load() != 2 {
 		t.Fatalf("projects %d calls %d err %v", len(projects), calls.Load(), err)
@@ -78,7 +78,7 @@ func TestListProjectsStopsOnEmptyNextHeader(t *testing.T) {
 		for i := range batch {
 			batch[i] = &Project{
 				ID:                i + 1,
-				PathWithNamespace: "mailion/full-" + strconv.Itoa(i),
+				PathWithNamespace: "lamiona/full-" + strconv.Itoa(i),
 				DefaultBranch:     "master",
 			}
 		}
@@ -88,7 +88,7 @@ func TestListProjectsStopsOnEmptyNextHeader(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := testClient(server.URL, server.Client())
-	projects, err := client.ListProjects(context.Background(), []string{"mailion"})
+	projects, err := client.ListProjects(context.Background(), []string{"lamiona"})
 
 	if err != nil || len(projects) != projectsPerPage || calls.Load() != 1 {
 		t.Fatalf("len %d calls %d err %v", len(projects), calls.Load(), err)
@@ -100,7 +100,7 @@ func TestListProjectsRejectsRepeatedPageAndLimits(t *testing.T) {
 		w.Header().Set("X-Next-Page", r.URL.Query().Get("page"))
 		project := &Project{
 			ID:                1,
-			PathWithNamespace: "mailion/one",
+			PathWithNamespace: "lamiona/one",
 			DefaultBranch:     "master",
 		}
 		page := []*Project{project}
@@ -109,7 +109,7 @@ func TestListProjectsRejectsRepeatedPageAndLimits(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := testClient(server.URL, server.Client())
-	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil {
+	if _, err := client.ListProjects(context.Background(), []string{"lamiona"}); err == nil {
 		t.Fatal("repeated page succeeded")
 	}
 
@@ -118,7 +118,7 @@ func TestListProjectsRejectsRepeatedPageAndLimits(t *testing.T) {
 		for i := range batch {
 			batch[i] = &Project{
 				ID:                i + 1,
-				PathWithNamespace: "mailion/p-" + strconv.Itoa(i),
+				PathWithNamespace: "lamiona/p-" + strconv.Itoa(i),
 				DefaultBranch:     "master",
 			}
 		}
@@ -130,7 +130,7 @@ func TestListProjectsRejectsRepeatedPageAndLimits(t *testing.T) {
 	client = testClient(limited.URL, limited.Client())
 	client.MaxPages = 1
 
-	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil {
+	if _, err := client.ListProjects(context.Background(), []string{"lamiona"}); err == nil {
 		t.Fatal("page limit succeeded")
 	}
 }
@@ -151,7 +151,7 @@ func TestListProjectsPageFailureIsIncomplete(t *testing.T) {
 		for i := range batch {
 			batch[i] = &Project{
 				ID:                i + 1,
-				PathWithNamespace: "mailion/p-" + strconv.Itoa(i),
+				PathWithNamespace: "lamiona/p-" + strconv.Itoa(i),
 				DefaultBranch:     "master",
 			}
 		}
@@ -162,7 +162,7 @@ func TestListProjectsPageFailureIsIncomplete(t *testing.T) {
 
 	client := testClient(server.URL, server.Client())
 	client.Attempts = 1
-	_, err := client.ListProjects(context.Background(), []string{"mailion", "other"})
+	_, err := client.ListProjects(context.Background(), []string{"lamiona", "other"})
 
 	if err == nil || calls.Load() != 2 || strings.Contains(err.Error(), "secret-token-body") {
 		t.Fatal(err, calls.Load())
@@ -172,7 +172,7 @@ func TestListProjectsPageFailureIsIncomplete(t *testing.T) {
 func TestListProjectsDedupesGroupsAndRejectsContradiction(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := 7
-		path := "mailion/shared"
+		path := "lamiona/shared"
 
 		if r.URL.Path == "/api/v4/groups/other/projects" {
 			path = "other/shared"
@@ -189,7 +189,7 @@ func TestListProjectsDedupesGroupsAndRejectsContradiction(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := testClient(server.URL, server.Client())
-	if _, err := client.ListProjects(context.Background(), []string{"mailion", "other"}); err == nil {
+	if _, err := client.ListProjects(context.Background(), []string{"lamiona", "other"}); err == nil {
 		t.Fatal("contradictory paths succeeded")
 	}
 }
@@ -206,7 +206,7 @@ func TestListProjectsAuthIsNotRetried(t *testing.T) {
 	client := testClient(server.URL, server.Client())
 	client.Attempts = 3
 
-	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil || calls.Load() != 1 {
+	if _, err := client.ListProjects(context.Background(), []string{"lamiona"}); err == nil || calls.Load() != 1 {
 		t.Fatal(err, calls.Load())
 	}
 }
@@ -227,7 +227,7 @@ func TestListProjectsRetriesTransientThenStops(t *testing.T) {
 		client.RetryDelay = time.Millisecond
 		started := time.Now()
 
-		_, err := client.ListProjects(t.Context(), []string{"mailion", "other"})
+		_, err := client.ListProjects(t.Context(), []string{"lamiona", "other"})
 		if err == nil {
 			t.Fatal("outage succeeded")
 		}
@@ -247,14 +247,14 @@ func TestListProjectsDoesNotFollowRedirect(t *testing.T) {
 	t.Cleanup(other.Close)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, other.URL+"/api/v4/groups/mailion/projects", http.StatusFound)
+		http.Redirect(w, r, other.URL+"/api/v4/groups/lamiona/projects", http.StatusFound)
 	}))
 	t.Cleanup(server.Close)
 
 	client := testClient(server.URL, server.Client())
 	client.Attempts = 3
 
-	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil || leaked.Load() != 0 {
+	if _, err := client.ListProjects(context.Background(), []string{"lamiona"}); err == nil || leaked.Load() != 0 {
 		t.Fatal(err, leaked.Load())
 	}
 }
@@ -282,7 +282,7 @@ func TestListProjectsTLSFailureIsNotRetried(t *testing.T) {
 	client := testClient(server.URL, httpClient)
 	client.Attempts = 3
 
-	if _, err := client.ListProjects(context.Background(), []string{"mailion"}); err == nil || calls.Load() != 1 {
+	if _, err := client.ListProjects(context.Background(), []string{"lamiona"}); err == nil || calls.Load() != 1 {
 		t.Fatal(err, calls.Load())
 	}
 }
@@ -298,7 +298,7 @@ func TestListProjectsHonorsCancel(t *testing.T) {
 	client := testClient(server.URL, server.Client())
 	client.Budget = time.Second
 
-	if _, err := client.ListProjects(ctx, []string{"mailion"}); err == nil {
+	if _, err := client.ListProjects(ctx, []string{"lamiona"}); err == nil {
 		t.Fatal("canceled list succeeded")
 	}
 }

@@ -732,7 +732,7 @@ func decodeReleaseAlign(spec *WorkspaceSpec, root *yaml.Node) error {
 		return errWorkspaceField
 	}
 
-	allowed := []string{"schema-version", "release", "gitlab", "timeouts"}
+	allowed := []string{"schema-version", "release", "base-dir", "gitlab", "timeouts"}
 	if err := unknownKeys(node, keyReleaseAlign, allowed); err != nil {
 		return err
 	}
@@ -748,6 +748,13 @@ func decodeReleaseAlign(spec *WorkspaceSpec, root *yaml.Node) error {
 	}
 
 	spec.Release = release
+
+	baseDir, err := optionalString(node, "base-dir")
+	if err != nil {
+		return err
+	}
+
+	spec.BaseDir = baseDir
 	if err = decodeGitLab(spec, node); err != nil {
 		return err
 	}

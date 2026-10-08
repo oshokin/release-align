@@ -161,6 +161,10 @@ func releaseNode(spec *WorkspaceSpec) *yaml.Node {
 		block.Content = append(block.Content, strNode("release", false), strNode(spec.Release, false))
 	}
 
+	if spec.BaseDir != "" {
+		block.Content = append(block.Content, strNode("base-dir", false), strNode(spec.BaseDir, true))
+	}
+
 	if spec.GitLab != nil {
 		block.Content = append(block.Content, strNode("gitlab", false), gitlabNode(spec.GitLab))
 	}
@@ -208,13 +212,11 @@ func projectNode(project *ProjectSpec) *yaml.Node {
 // gitlabNode writes the discovery scope.
 func gitlabNode(source *GitLabSource) *yaml.Node {
 	node := mappingNode()
-	node.Content = append(
-		node.Content,
-		strNode(keyURL, false),
-		strNode(source.URL, false),
-		strNode(keyGroups, false),
-		stringSeq(source.Groups),
-	)
+	node.Content = append(node.Content, strNode(keyURL, false), strNode(source.URL, false))
+
+	if len(source.Groups) > 0 {
+		node.Content = append(node.Content, strNode(keyGroups, false), stringSeq(source.Groups))
+	}
 
 	protocol := source.CloneProtocol
 	if protocol == "" {

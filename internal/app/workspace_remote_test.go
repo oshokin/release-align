@@ -24,10 +24,10 @@ func TestAppendKeepsGitLabSource(t *testing.T) {
 		},
 		GitLab: &GitLabSource{
 			URL:    "https://gitlab.example",
-			Groups: []string{"mailion"},
+			Groups: []string{"lamiona"},
 		},
 		Projects: []*ProjectSpec{{
-			Path: "mailion/search/pasifae",
+			Path: "lamiona/search/calyra",
 		}},
 	}
 	if err := spec.Validate(); err != nil {
@@ -35,8 +35,8 @@ func TestAppendKeepsGitLabSource(t *testing.T) {
 	}
 
 	discovered := &ProjectSpec{
-		Path:   "mailion/search/new-indexer",
-		Groups: []string{"mailion", "mailion/search"},
+		Path:   "lamiona/search/new-indexer",
+		Groups: []string{"lamiona", "lamiona/search"},
 	}
 	next, added, err := AppendDiscoveredProjects(spec, []*ProjectSpec{discovered})
 
@@ -45,7 +45,7 @@ func TestAppendKeepsGitLabSource(t *testing.T) {
 	}
 
 	next.GitLab.Groups[0] = "changed"
-	if spec.GitLab.Groups[0] != "mailion" {
+	if spec.GitLab.Groups[0] != "lamiona" {
 		t.Fatal(spec.GitLab.Groups)
 	}
 }
@@ -58,10 +58,10 @@ func TestGitLabSourceCloneDoesNotShareGroups(t *testing.T) {
 		},
 		GitLab: &GitLabSource{
 			URL:    "https://gitlab.example",
-			Groups: []string{"mailion", "mailion"},
+			Groups: []string{"lamiona", "lamiona"},
 		},
 		Projects: []*ProjectSpec{{
-			Path: "mailion/search/pasifae",
+			Path: "lamiona/search/calyra",
 		}},
 	}
 	if err := spec.Validate(); err != nil || spec.GitLab.CloneProtocol != cloneProtocolSSH ||
@@ -75,15 +75,15 @@ func TestGitLabSourceCloneDoesNotShareGroups(t *testing.T) {
 	}
 
 	next.GitLab.Groups[0] = "changed"
-	if spec.GitLab.Groups[0] != "mailion" {
+	if spec.GitLab.Groups[0] != "lamiona" {
 		t.Fatal(spec.GitLab.Groups)
 	}
 }
 
 func TestRemoteIdentityIgnoresUserAndKeepsPort(t *testing.T) {
-	left, ok := parseRemote("git@GitLab.Example:Mailion/Search/Pasifae.git")
-	right, okHTTPS := parseRemote("https://gitlab.example/Mailion/Search/Pasifae")
-	ported, okPort := parseRemote("ssh://git@gitlab.example:2222/Mailion/Search/Pasifae.git")
+	left, ok := parseRemote("git@GitLab.Example:Lamiona/Search/Calyra.git")
+	right, okHTTPS := parseRemote("https://gitlab.example/Lamiona/Search/Calyra")
+	ported, okPort := parseRemote("ssh://git@gitlab.example:2222/Lamiona/Search/Calyra.git")
 	_, fileOK := parseRemote("file:///tmp/repo.git")
 
 	if !ok || !okHTTPS || left == nil || right == nil || left.host != right.host || left.path != right.path ||
@@ -96,14 +96,14 @@ func TestStatusRemoteReportsDiffWithoutCloning(t *testing.T) {
 	f := setup(t)
 	git(t, f.repo, "remote", "set-url", "origin", "git@gitlab.example:group/repo with spaces.git")
 	listed := remoteProject(1, "group/repo with spaces", "git@gitlab.example:group/repo with spaces.git")
-	indexer := remoteProject(2, "mailion/search/new-indexer", "git@gitlab.example:mailion/search/new-indexer.git")
-	cleaner := remoteProject(3, "mailion/auth/token-cleaner", "git@gitlab.example:mailion/auth/token-cleaner.git")
+	indexer := remoteProject(2, "lamiona/search/new-indexer", "git@gitlab.example:lamiona/search/new-indexer.git")
+	cleaner := remoteProject(3, "lamiona/auth/token-cleaner", "git@gitlab.example:lamiona/auth/token-cleaner.git")
 	projects := []*gitlab.Project{listed, indexer, cleaner}
 	server := catalogServer(t, projects)
 	spec := oneProject(t, "group/repo with spaces", nil)
 	spec.GitLab = &GitLabSource{
 		URL:    server.URL,
-		Groups: []string{"mailion", "group"},
+		Groups: []string{"lamiona", "group"},
 	}
 	f.cfg.Remote = true
 	f.cfg.WorkspaceFile = saveWorkspace(t, spec)
@@ -119,12 +119,12 @@ func TestStatusRemoteReportsDiffWithoutCloning(t *testing.T) {
 	}
 
 	catalog := report.RemoteInventory.Catalog
-	if len(catalog.NotCloned) != 2 || catalog.NotCloned[0] != "mailion/auth/token-cleaner" {
+	if len(catalog.NotCloned) != 2 || catalog.NotCloned[0] != "lamiona/auth/token-cleaner" {
 		t.Fatal(catalog)
 	}
 
 	if _, statErr := os.Stat(
-		filepath.Join(f.base, "mailion", "search", "new-indexer"),
+		filepath.Join(f.base, "lamiona", "search", "new-indexer"),
 	); !errors.Is(
 		statErr,
 		os.ErrNotExist,
@@ -270,10 +270,10 @@ func TestStatusWithoutRemoteDoesNotCallAPI(t *testing.T) {
 func TestCompareMatrix(t *testing.T) {
 	f := setup(t)
 	git(t, f.repo, "remote", "set-url", "origin", "git@gitlab.example:group/repo with spaces.git")
-	other := filepath.Join(f.base, "mailion", "elsewhere")
+	other := filepath.Join(f.base, "lamiona", "elsewhere")
 	git(t, f.base, "clone", f.remote, other)
-	git(t, other, "remote", "set-url", "origin", "git@gitlab.example:mailion/search/new-indexer.git")
-	occupied := filepath.Join(f.base, "mailion", "calendar", "reminders")
+	git(t, other, "remote", "set-url", "origin", "git@gitlab.example:lamiona/search/new-indexer.git")
+	occupied := filepath.Join(f.base, "lamiona", "calendar", "reminders")
 
 	if err := os.MkdirAll(occupied, 0o750); err != nil {
 		t.Fatal(err)
@@ -281,7 +281,7 @@ func TestCompareMatrix(t *testing.T) {
 
 	spec := oneProject(t, "group/repo with spaces", nil)
 	missing := &ProjectSpec{
-		Path: "mailion/missing/listed",
+		Path: "lamiona/missing/listed",
 	}
 	outside := &ProjectSpec{
 		Path: "outside/kept",
@@ -289,18 +289,18 @@ func TestCompareMatrix(t *testing.T) {
 	spec.Projects = append(spec.Projects, missing, outside)
 	spec.GitLab = &GitLabSource{
 		URL:    "https://gitlab.example",
-		Groups: []string{"mailion", "group"},
+		Groups: []string{"lamiona", "group"},
 	}
 	emptyProject := &gitlab.Project{
 		ID:                5,
-		PathWithNamespace: "mailion/empty",
-		SSHURLToRepo:      "git@gitlab.example:mailion/empty.git",
+		PathWithNamespace: "lamiona/empty",
+		SSHURLToRepo:      "git@gitlab.example:lamiona/empty.git",
 	}
 	projects := []*gitlab.Project{
 		remoteProject(1, "group/repo with spaces", "git@gitlab.example:group/repo with spaces.git"),
-		remoteProject(2, "mailion/search/new-indexer", "git@gitlab.example:mailion/search/new-indexer.git"),
-		remoteProject(3, "mailion/calendar/reminders", "git@gitlab.example:mailion/calendar/reminders.git"),
-		remoteProject(4, "mailion/search/absent", "git@gitlab.example:mailion/search/absent.git"),
+		remoteProject(2, "lamiona/search/new-indexer", "git@gitlab.example:lamiona/search/new-indexer.git"),
+		remoteProject(3, "lamiona/calendar/reminders", "git@gitlab.example:lamiona/calendar/reminders.git"),
+		remoteProject(4, "lamiona/search/absent", "git@gitlab.example:lamiona/search/absent.git"),
 		emptyProject,
 	}
 
@@ -318,12 +318,12 @@ func TestCompareMatrix(t *testing.T) {
 	}
 
 	catalog := inventory.Catalog
-	if !slices.Contains(catalog.DifferentPath, "mailion/search/new-indexer") ||
-		!slices.Contains(catalog.Conflicts, "mailion/calendar/reminders") ||
-		!slices.Contains(catalog.NotCloned, "mailion/search/absent") ||
-		!slices.Contains(catalog.NotReturned, "mailion/missing/listed") ||
+	if !slices.Contains(catalog.DifferentPath, "lamiona/search/new-indexer") ||
+		!slices.Contains(catalog.Conflicts, "lamiona/calendar/reminders") ||
+		!slices.Contains(catalog.NotCloned, "lamiona/search/absent") ||
+		!slices.Contains(catalog.NotReturned, "lamiona/missing/listed") ||
 		!slices.Contains(catalog.OutsideScope, "outside/kept") ||
-		!slices.Contains(catalog.SkippedEmpty, "mailion/empty") {
+		!slices.Contains(catalog.SkippedEmpty, "lamiona/empty") {
 		t.Fatalf("%+v", catalog)
 	}
 }

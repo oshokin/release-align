@@ -22,14 +22,14 @@ func TestTextLogColorsLevelAndListsFiles(t *testing.T) {
 	}
 	core := newTextCore(zapcore.InfoLevel, sink, true)
 	log := zap.New(core).Sugar()
-	log.With("repo", "UCS-QA/cap_autotests").Warn(
+	log.With("repo", "NEXA-QA/demo_checks").Warn(
 		"skipped: working tree has staged, unstaged or untracked changes\n  a.go\n  b.go",
 	)
 
 	out := buf.String()
 	plain := stripANSI(out)
 
-	if !strings.Contains(plain, " WARN ") || !strings.Contains(plain, "UCS-QA/cap_autotests  skipped:") {
+	if !strings.Contains(plain, " WARN ") || !strings.Contains(plain, "NEXA-QA/demo_checks  skipped:") {
 		t.Fatal(plain)
 	}
 
@@ -37,7 +37,7 @@ func TestTextLogColorsLevelAndListsFiles(t *testing.T) {
 		t.Fatal(plain)
 	}
 
-	if !strings.Contains(out, "\033[1;33mWARN") || !strings.Contains(out, "UCS-QA/cap_autotests") {
+	if !strings.Contains(out, "\033[1;33mWARN") || !strings.Contains(out, "NEXA-QA/demo_checks") {
 		t.Fatal(out)
 	}
 }

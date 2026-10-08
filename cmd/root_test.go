@@ -32,7 +32,7 @@ func TestHelpVersionAndInvalidFlags(t *testing.T) {
 
 // TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment verifies that help, version, and completion ignore a broken environment.
 func TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment(t *testing.T) {
-	t.Setenv("JOBS", "invalid")
+	t.Setenv("RELEASE_ALIGN_JOBS", "invalid")
 
 	commands := [][]string{
 		{"--help"},
@@ -59,7 +59,7 @@ func TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment(t *testing.T) {
 
 // TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState verifies that flags beat the environment and commands do not share state.
 func TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState(t *testing.T) {
-	t.Setenv("JOBS", "invalid")
+	t.Setenv("RELEASE_ALIGN_JOBS", "invalid")
 
 	var out, err bytes.Buffer
 
@@ -81,7 +81,7 @@ func TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState(t *testing.T) {
 func TestWorkspaceUsageAndJSONEnvelope(t *testing.T) {
 	rejected := [][]string{
 		{"--group", "search"},
-		{"--repo", "search/mailbek"},
+		{"--repo", "search/quillbox"},
 		{"--workspace", "missing.json", "--versions-file", "versions.json"},
 		{"--workspace", "missing.json", "--depth", "3"},
 		{"--workspace", "missing.json", "--local", "keep"},
@@ -103,7 +103,7 @@ func TestWorkspaceUsageAndJSONEnvelope(t *testing.T) {
 		t.Fatalf("%d %s %s", code, out.String(), err.String())
 	}
 
-	if strings.Contains(out.String(), "\x1b") || !strings.Contains(err.String(), "workspace") {
+	if strings.Contains(out.String(), "\x1b") || !strings.Contains(err.String(), defaultWorkspaceFile) {
 		t.Fatalf("out=%s err=%s", out.String(), err.String())
 	}
 }

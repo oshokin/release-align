@@ -43,12 +43,13 @@ func newWorkspaceCloneCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "clone",
 		Short: "Clone selected GitLab projects and add them to the workspace",
-		Long: "Requires --workspace, --base-dir, and either repeatable --repo or --all.\n" +
+		Long: "Requires either repeatable --repo or --all.\n" +
+			"--workspace defaults to release-align.yml. An omitted --base-dir uses release-align.base-dir from that file.\n" +
 			"--all uses the gitlab.groups saved in the workspace, including subgroups, not every project on the server.\n" +
 			"An existing matching checkout is reused. Occupied paths are not replaced.\n" +
 			"Clones stay on the remote default branch; run release-align to align the release.\n\n" +
-			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$BASE_DIR\" --repo mailion/search/new-indexer\n" +
-			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$BASE_DIR\" --all",
+			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$RELEASE_ALIGN_BASE_DIR\" --repo lamiona/search/new-indexer\n" +
+			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$RELEASE_ALIGN_BASE_DIR\" --all",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -61,8 +62,13 @@ func newWorkspaceCloneCommand() *cobra.Command {
 		}
 	})
 	flags := command.Flags()
-	flags.StringVar(&options.WorkspaceFile, "workspace", "", "workspace YAML (.yml or .yaml, required)")
-	flags.StringVar(&options.BaseDir, "base-dir", "", "directory that will contain <namespace> clones (required)")
+	flags.StringVar(&options.WorkspaceFile, "workspace", defaultWorkspaceFile, "workspace YAML (.yml or .yaml)")
+	flags.StringVar(
+		&options.BaseDir,
+		"base-dir",
+		"",
+		"directory that will contain <namespace> clones; omitted flag uses the file",
+	)
 	flags.StringArrayVar(&options.Repos, "repo", nil, "exact GitLab path_with_namespace; repeatable")
 	flags.BoolVar(&options.All, "all", false, "clone and include every project in gitlab.groups")
 	flags.StringVar(&options.Output, "output", options.Output, "output format: text or json")
@@ -90,8 +96,21 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 		}
 	}
 
-	cfg := cloneEnvConfig(c.options)
-	if err := applyCommandEnv(command, cfg); err != nil {
+	choice := &baseDirChoice{
+		command:   command,
+		workspace: c.options.WorkspaceFile,
+		current:   c.options.BaseDir,
+	}
+
+	base, err := savedBaseDir(choice)
+	if err != nil {
+		return c.fail(command, err)
+	}
+
+	c.options.BaseDir = base
+
+	cfg := c.cloneEnvConfig()
+	if err = applyCommandEnv(command, cfg); err != nil {
 		return &commandError{
 			code:  exitUsage,
 			cause: err,
@@ -114,10 +133,10 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 	}
 
 	if c.options.Output == cloneOutputText && app.ExitCodeForWorkspace(err) == exitUsage {
-		return cloneCommandError(err)
+		return c.cloneCommandError(err)
 	}
 
-	writeErr := writeCloneReport(command, c.options, report)
+	writeErr := c.writeCloneReport(command, report)
 	if writeErr != nil {
 		return &commandError{
 			code:  exitFailed,
@@ -125,26 +144,50 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 		}
 	}
 
-	return cloneCommandError(err)
+	return c.cloneCommandError(err)
+}
+
+// fail writes a JSON error when that format was requested, then returns the status.
+func (c *workspaceCloneCommand) fail(command *cobra.Command, err error) error {
+	if c.options.Output != cloneOutputJSON {
+		return c.cloneCommandError(err)
+	}
+
+	report := &app.CloneReport{
+		SchemaVersion: 1,
+		Error:         err.Error(),
+	}
+
+	writeErr := c.writeCloneReport(command, report)
+	if writeErr != nil {
+		failed := &commandError{
+			code:  exitFailed,
+			cause: writeErr,
+		}
+
+		return failed
+	}
+
+	return c.cloneCommandError(err)
 }
 
 // cloneEnvConfig carries clone timeouts into the shared environment reader and back.
-func cloneEnvConfig(opts *app.WorkspaceCloneOptions) *app.Config {
+func (c *workspaceCloneCommand) cloneEnvConfig() *app.Config {
 	cfg := app.DefaultConfig()
-	cfg.Attempts = opts.Attempts
-	cfg.ProbeTimeout = opts.ProbeTimeout
-	cfg.RetryDelay = opts.RetryDelay
-	cfg.FetchTimeout = opts.FetchTimeout
-	cfg.LocalTimeout = opts.LocalTimeout
-	cfg.CloneTimeout = opts.CloneTimeout
-	cfg.Output = opts.Output
+	cfg.Attempts = c.options.Attempts
+	cfg.ProbeTimeout = c.options.ProbeTimeout
+	cfg.RetryDelay = c.options.RetryDelay
+	cfg.FetchTimeout = c.options.FetchTimeout
+	cfg.LocalTimeout = c.options.LocalTimeout
+	cfg.CloneTimeout = c.options.CloneTimeout
+	cfg.Output = c.options.Output
 
 	return cfg
 }
 
 // writeCloneReport writes JSON to stdout or the text summary.
-func writeCloneReport(command *cobra.Command, opts *app.WorkspaceCloneOptions, report *app.CloneReport) error {
-	if opts.Output == cloneOutputJSON {
+func (c *workspaceCloneCommand) writeCloneReport(command *cobra.Command, report *app.CloneReport) error {
+	if c.options.Output == cloneOutputJSON {
 		return app.WriteCloneReport(command.OutOrStdout(), report)
 	}
 
@@ -152,13 +195,20 @@ func writeCloneReport(command *cobra.Command, opts *app.WorkspaceCloneOptions, r
 }
 
 // cloneCommandError maps clone failures onto process statuses.
-func cloneCommandError(err error) error {
+func (*workspaceCloneCommand) cloneCommandError(err error) error {
 	if err == nil {
 		return nil
 	}
 
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
+	}
+
+	if errors.Is(err, errBaseDirMissing) || errors.Is(err, errBaseDirChoice) {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
 	}
 
 	code := app.ExitCodeForWorkspace(err)

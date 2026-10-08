@@ -245,13 +245,13 @@ linters:
       # Default: "" (v5 preset, which turns the after-* checks off)
       default: all
 
+      # after-block keeps a blank line after if, for, and switch.
       # after-expr splits Lock from the assignment it guards; assign-exclusive splits := from =.
-      # after-block, assign and defer would split a guard from the assignment and defer it sets up.
+      # assign and defer would split a guard from the value and the defer it sets up.
       # after-defer and return still require the blank line after the last defer and before return.
       disable:
         - after-expr
         - assign-exclusive
-        - after-block
         - assign
         - defer
 

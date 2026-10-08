@@ -22,7 +22,7 @@ type WorkspaceInitOptions struct {
 	Branch string
 	// Release is an optional label stored in the new file.
 	Release string
-	// GitLabURL is saved when set. Init does not call the API.
+	// GitLabURL is saved when set. An empty value uses the base directory name when that name is a DNS host.
 	GitLabURL string
 	// GitLabGroups are saved when set. They are not inferred from directories.
 	GitLabGroups []string
@@ -39,6 +39,15 @@ type workspaceScanner struct {
 	// gaps are paths whose origin URL was not stored.
 	gaps []string
 }
+
+const (
+	// gitlabURLScheme is the API origin prefix stored for a directory-name host.
+	gitlabURLScheme = "https://"
+	// dnsHostMaxLen is the longest accepted DNS name, without a trailing dot.
+	dnsHostMaxLen = 253
+	// dnsLabelMaxLen is the longest accepted DNS label.
+	dnsLabelMaxLen = 63
+)
 
 var (
 	// errWorkspaceInitOptions means the base directory or branch was omitted.
@@ -90,17 +99,22 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
 		Release:       options.Release,
+		BaseDir:       base,
 		DefaultRevision: &RevisionSpec{
 			Branch: options.Branch,
 		},
 		Projects: projects,
 		URLGaps:  gaps,
 	}
-	if options.GitLabURL != "" || len(options.GitLabGroups) > 0 {
-		spec.GitLab = &GitLabSource{
-			URL:    options.GitLabURL,
+
+	gitlabURL, fromBase := gitlabURLForInit(options, base)
+	if gitlabURL != "" || len(options.GitLabGroups) > 0 {
+		source := &GitLabSource{
+			URL:    gitlabURL,
 			Groups: slices.Clone(options.GitLabGroups),
 		}
+		spec.GitLab = source
+		spec.GitLabURLFromBase = fromBase
 	}
 
 	if err = spec.Validate(); err != nil {
@@ -145,6 +159,66 @@ func canonicalWorkspaceBase(baseDir string) (string, error) {
 	}
 
 	return base, nil
+}
+
+// gitlabURLForInit returns an explicit --gitlab-url, or https:// plus the base directory name.
+// The second result is true only when the URL was taken from that directory name.
+func gitlabURLForInit(options *WorkspaceInitOptions, base string) (string, bool) {
+	if options.GitLabURL != "" {
+		return options.GitLabURL, false
+	}
+
+	host, ok := directoryGitLabHost(base)
+	if !ok {
+		return "", false
+	}
+
+	return gitlabURLScheme + host, true
+}
+
+// directoryGitLabHost returns the lowercased last path component when it is a DNS host.
+// Parent directories are ignored.
+func directoryGitLabHost(base string) (string, bool) {
+	name := strings.ToLower(filepath.Base(base))
+	if !dnsHostname(name) {
+		return "", false
+	}
+
+	return name, true
+}
+
+// dnsHostname reports a dotted name whose labels are letters, digits, and hyphens.
+func dnsHostname(name string) bool {
+	if name == "" || len(name) > dnsHostMaxLen || !strings.Contains(name, ".") {
+		return false
+	}
+
+	for label := range strings.SplitSeq(name, ".") {
+		if !dnsLabel(label) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// dnsLabel reports one non-empty LDH label that does not start or end with a hyphen.
+func dnsLabel(label string) bool {
+	if label == "" || len(label) > dnsLabelMaxLen {
+		return false
+	}
+
+	if label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+
+	for _, char := range label {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // discoverWorkspaceProjects walks one canonical base directory.

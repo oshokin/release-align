@@ -28,8 +28,8 @@ func TestWorkspaceDecodeRejectsAmbiguity(t *testing.T) {
 		"  defaults:\n" +
 		"    revision: refs/heads/Release-26.3.0\n" +
 		"  projects:\n" +
-		"    - name: mailbek\n" +
-		"      path: search/mailbek\n" +
+		"    - name: quillbox\n" +
+		"      path: search/quillbox\n" +
 		"      groups: [search]\n" +
 		"release-align:\n" +
 		"  schema-version: 1\n"
@@ -38,12 +38,13 @@ func TestWorkspaceDecodeRejectsAmbiguity(t *testing.T) {
 	if err != nil || w.RevisionFor(w.Projects[0]).Branch != "Release-26.3.0" {
 		t.Fatalf("decode: %+v %v", w, err)
 	}
+
 	cases := []string{
 		"null\n",
 		"{}\n",
 		valid + "---\n{}\n",
 		strings.Replace(valid, "  schema-version: 1\n", "  schema-version: 1\n  schema-version: 1\n", 1),
-		strings.Replace(valid, "path: search/mailbek\n", "path: a/b\n      path: search/mailbek\n", 1),
+		strings.Replace(valid, "path: search/quillbox\n", "path: a/b\n      path: search/quillbox\n", 1),
 		strings.Replace(valid, "schema-version: 1\n", "schema-version: 1\n  typo: true\n", 1),
 		strings.Replace(valid, "groups: [search]\n", "groups: [search, search]\n", 1),
 		"manifest:\n  projects:\n    - name: b\n      path: a/b\n      revision: not a ref~\n",
@@ -69,6 +70,7 @@ func TestWorkspacePathsAndSelections(t *testing.T) {
 			t.Fatalf("accepted %q", p)
 		}
 	}
+
 	w := &WorkspaceSpec{
 		SchemaVersion: 1,
 		DefaultRevision: &RevisionSpec{
@@ -76,22 +78,22 @@ func TestWorkspacePathsAndSelections(t *testing.T) {
 		},
 		Projects: []*ProjectSpec{
 			{
-				Path:   "search/mailbek",
+				Path:   "search/quillbox",
 				Groups: []string{"search"},
 			},
 			{
-				Path:   "search/pasifae",
+				Path:   "search/calyra",
 				Groups: []string{"search"},
 			},
 			{
-				Path:   "storage/dos",
+				Path:   "storage/pebblebox",
 				Groups: []string{"storage"},
 			},
 		},
 	}
-	selected, err := w.SelectProjects([]string{"storage/dos", "storage/dos"}, []string{"search"})
+	selected, err := w.SelectProjects([]string{"storage/pebblebox", "storage/pebblebox"}, []string{"search"})
 
-	if err != nil || len(selected) != 3 || selected[0].Path != "search/mailbek" {
+	if err != nil || len(selected) != 3 || selected[0].Path != "search/calyra" {
 		t.Fatalf("selection: %+v %v", selected, err)
 	}
 
@@ -99,7 +101,7 @@ func TestWorkspacePathsAndSelections(t *testing.T) {
 		t.Fatal("accepted unknown group")
 	}
 
-	if _, err = w.SelectProjects([]string{"mailbek"}, nil); err == nil {
+	if _, err = w.SelectProjects([]string{"quillbox"}, nil); err == nil {
 		t.Fatal("accepted ambiguous short name")
 	}
 }
@@ -173,6 +175,7 @@ func TestWorkspaceReportRefusesFalseSuccess(t *testing.T) {
 			}
 		})
 	}
+
 	r := &WorkspaceReport{
 		Rows: []*WorkspaceRow{makeRow()},
 	}
@@ -182,6 +185,7 @@ func TestWorkspaceReportRefusesFalseSuccess(t *testing.T) {
 		r.Rows[1].ReasonCode != "not_observed" {
 		t.Fatalf("missing repository disappeared: %+v %v", r, err)
 	}
+
 	r = &WorkspaceReport{
 		DryRun: true,
 		Rows:   []*WorkspaceRow{makeRow()},
@@ -189,12 +193,14 @@ func TestWorkspaceReportRefusesFalseSuccess(t *testing.T) {
 	if err := r.Finalize([]string{"a/b"}); err != nil || r.Ready {
 		t.Fatal("dry-run reported ready")
 	}
+
 	r = &WorkspaceReport{
 		Rows: []*WorkspaceRow{makeRow(), makeRow()},
 	}
 	if err := r.Finalize([]string{"a/b"}); err == nil {
 		t.Fatal("duplicate report row accepted")
 	}
+
 	r = new(WorkspaceReport)
 	if err := r.Finalize(nil); err != nil || r.Ready {
 		t.Fatal("empty selection reported ready")

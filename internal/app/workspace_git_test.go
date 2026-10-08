@@ -74,6 +74,7 @@ func TestWorkspaceRealGitResolvesExactly(t *testing.T) {
 	if err != nil || state.Branch != "" {
 		t.Fatal("detached observation failed", err)
 	}
+
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 

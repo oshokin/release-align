@@ -33,7 +33,7 @@ func TestCloneReusesThenClonesAndRepeats(t *testing.T) {
 	}
 	indexer := &gitlab.Project{
 		ID:                2,
-		PathWithNamespace: "mailion/search/new-indexer",
+		PathWithNamespace: "lamiona/search/new-indexer",
 		SSHURLToRepo:      second,
 		DefaultBranch:     "master",
 	}
@@ -41,7 +41,7 @@ func TestCloneReusesThenClonesAndRepeats(t *testing.T) {
 	server := catalogServer(t, projects)
 	spec.GitLab = &GitLabSource{
 		URL:    server.URL,
-		Groups: []string{"group", "mailion"},
+		Groups: []string{"group", "lamiona"},
 	}
 	file := saveWorkspace(t, spec)
 	before := readBytes(t, file)
@@ -58,14 +58,14 @@ func TestCloneReusesThenClonesAndRepeats(t *testing.T) {
 		t.Fatal("reuse rewrote the workspace")
 	}
 
-	opts.Repos = []string{"mailion/search/new-indexer"}
+	opts.Repos = []string{"lamiona/search/new-indexer"}
 	report, err = CloneWorkspace(t.Context(), opts)
 
 	if err != nil || report.Cloned != 1 || report.Added != 1 {
 		t.Fatal(err, report)
 	}
 
-	cloned := filepath.Join(f.base, "mailion", "search", "new-indexer")
+	cloned := filepath.Join(f.base, "lamiona", "search", "new-indexer")
 	if git(t, cloned, "rev-parse", "--abbrev-ref", "HEAD") != "master" {
 		t.Fatal("clone did not check out the default branch")
 	}
@@ -90,13 +90,13 @@ func TestClonePartialKeepsFinishedCheckout(t *testing.T) {
 	spec := oneProject(t, "group/repo with spaces", nil)
 	goodProject := &gitlab.Project{
 		ID:                1,
-		PathWithNamespace: "mailion/a-good",
+		PathWithNamespace: "lamiona/a-good",
 		SSHURLToRepo:      good,
 		DefaultBranch:     "master",
 	}
 	badProject := &gitlab.Project{
 		ID:                2,
-		PathWithNamespace: "mailion/b-bad",
+		PathWithNamespace: "lamiona/b-bad",
 		SSHURLToRepo:      filepath.Join(filepath.Dir(f.base), "missing-origin.git"),
 		DefaultBranch:     "master",
 	}
@@ -104,7 +104,7 @@ func TestClonePartialKeepsFinishedCheckout(t *testing.T) {
 	server := catalogServer(t, projects)
 	spec.GitLab = &GitLabSource{
 		URL:    server.URL,
-		Groups: []string{"mailion"},
+		Groups: []string{"lamiona"},
 	}
 	file := saveWorkspace(t, spec)
 	opts := cloneOptions(t, f.base, file, server)
@@ -115,12 +115,12 @@ func TestClonePartialKeepsFinishedCheckout(t *testing.T) {
 		t.Fatal(err, report)
 	}
 
-	if _, statErr := os.Stat(filepath.Join(f.base, "mailion", "a-good", ".git")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(f.base, "lamiona", "a-good", ".git")); statErr != nil {
 		t.Fatal(statErr)
 	}
 
 	body := string(readBytes(t, file))
-	if !strings.Contains(body, "mailion/a-good") || strings.Contains(body, "mailion/b-bad") {
+	if !strings.Contains(body, "lamiona/a-good") || strings.Contains(body, "lamiona/b-bad") {
 		t.Fatal(body)
 	}
 }
@@ -138,7 +138,7 @@ func TestCloneRejectsUnknownBeforeWrite(t *testing.T) {
 	file := saveWorkspace(t, spec)
 	before := readBytes(t, file)
 	opts := cloneOptions(t, f.base, file, server)
-	opts.Repos = []string{"mailion/missing", "group/repo with spaces"}
+	opts.Repos = []string{"lamiona/missing", "group/repo with spaces"}
 
 	if _, err := CloneWorkspace(t.Context(), opts); !errors.Is(err, errCloneUnknown) {
 		t.Fatal(err)

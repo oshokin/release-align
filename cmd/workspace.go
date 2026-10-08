@@ -52,7 +52,7 @@ func newStatusCommand(cfg *app.Config) *cobra.Command {
 
 // runWorkspaceCommand loads the inventory and runs sync or status.
 func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.ValidateSettings(); err != nil {
 		return usageCommand(cmd, cfg, mode, err)
 	}
 
@@ -62,6 +62,23 @@ func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error
 
 	spec, err := app.LoadWorkspace(cfg.WorkspaceFile)
 	if err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	choice := &baseDirChoice{
+		command:     cmd,
+		current:     cfg.BaseDir,
+		recorded:    spec.BaseDir,
+		recordedSet: true,
+	}
+
+	base, err := savedBaseDir(choice)
+	if err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
+	cfg.BaseDir = base
+	if err = cfg.Validate(); err != nil {
 		return usageCommand(cmd, cfg, mode, err)
 	}
 

@@ -18,12 +18,12 @@ func TestAuditSubgroupEscaping(t *testing.T) {
 		BaseURL: "https://gitlab.example.test",
 	}
 
-	endpoint, err := client.projectURL("mailion/search", 1)
+	endpoint, err := client.projectURL("lamiona/search", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(endpoint.raw, "/groups/mailion%2Fsearch/projects?") {
+	if !strings.Contains(endpoint.raw, "/groups/lamiona%2Fsearch/projects?") {
 		t.Fatalf("subgroup URL is incorrectly escaped: %s", endpoint.raw)
 	}
 }
@@ -47,7 +47,7 @@ func TestAuditRetryAfter(t *testing.T) {
 		})
 		started := time.Now()
 
-		_, err := client.ListProjects(t.Context(), []string{"mailion"})
+		_, err := client.ListProjects(t.Context(), []string{"lamiona"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,7 +72,7 @@ func TestAuditRepeatedBody(t *testing.T) {
 			return
 		}
 
-		fmt.Fprint(w, `[{"id":1,"path_with_namespace":"mailion/one","default_branch":"master"}]`)
+		fmt.Fprint(w, `[{"id":1,"path_with_namespace":"lamiona/one","default_branch":"master"}]`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -83,7 +83,7 @@ func TestAuditRepeatedBody(t *testing.T) {
 		Attempts: 1,
 	}
 
-	projects, err := client.ListProjects(context.Background(), []string{"mailion"})
+	projects, err := client.ListProjects(context.Background(), []string{"lamiona"})
 	if err == nil {
 		t.Fatalf("repeated page body accepted as a complete catalog: %d project(s)", len(projects))
 	}
@@ -110,7 +110,7 @@ func TestAuditRetryAfterHTTPDate(t *testing.T) {
 		})
 		started := time.Now()
 
-		_, err := client.ListProjects(t.Context(), []string{"mailion"})
+		_, err := client.ListProjects(t.Context(), []string{"lamiona"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,7 +133,7 @@ func TestAuditRetryAfterCancel(t *testing.T) {
 		})
 		started := time.Now()
 
-		_, err := client.ListProjects(ctx, []string{"mailion"})
+		_, err := client.ListProjects(ctx, []string{"lamiona"})
 		if !errors.Is(err, context.Canceled) || time.Since(started) != 20*time.Millisecond {
 			t.Fatalf("pause was not canceled: %v after %s", err, time.Since(started))
 		}
@@ -149,7 +149,7 @@ func TestAuditRetryAfterBudget(t *testing.T) {
 		})
 		started := time.Now()
 
-		_, err := client.ListProjects(t.Context(), []string{"mailion"})
+		_, err := client.ListProjects(t.Context(), []string{"lamiona"})
 		if !errors.Is(err, errGitLabRateLimited) || time.Since(started) != 0 {
 			t.Fatalf("long Retry-After was retried: %v after %s", err, time.Since(started))
 		}
@@ -176,7 +176,7 @@ func TestAuditStopsAtThreeAttempts(t *testing.T) {
 		RetryDelay: 0,
 	}
 
-	_, err := client.ListProjects(context.Background(), []string{"mailion"})
+	_, err := client.ListProjects(context.Background(), []string{"lamiona"})
 	if err == nil || calls != 3 {
 		t.Fatalf("calls=%d err=%v", calls, err)
 	}

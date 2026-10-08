@@ -3,22 +3,22 @@ manifest:
   defaults:
     revision: refs/heads/Release-26.3.0
   projects:
-    - name: pasifae
-      path: mailion/search/pasifae
-      url: ssh://git@gitlab.stageoffice.ru/mailion/search/pasifae.git
-      groups: [mailion, mailion/search]
-    - name: mailbek
-      path: mailion/backend/mailbek
-      url: ssh://git@gitlab.stageoffice.ru/mailion/backend/mailbek.git
-      groups: [mailion, mailion/backend]
+    - name: calyra
+      path: lamiona/search/calyra
+      url: ssh://git@git.example.com/lamiona/search/calyra.git
+      groups: [lamiona, lamiona/search]
+    - name: quillbox
+      path: lamiona/backend/quillbox
+      url: ssh://git@git.example.com/lamiona/backend/quillbox.git
+      groups: [lamiona, lamiona/backend]
       revision: refs/tags/v26.3.1
 
 release-align:
   schema-version: 1
-  release: Mailion 26.3.0
+  release: Lamiona 26.3.0
   gitlab:
-    url: https://gitlab.stageoffice.ru
-    groups: [mailion]
+    url: https://git.example.com
+    groups: [lamiona]
     clone-protocol: ssh
   timeouts:
     probe: 5s

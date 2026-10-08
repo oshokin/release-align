@@ -24,6 +24,7 @@ func ResolveRevision(ctx context.Context, g LocalGit, dir string, spec *Revision
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
+
 	result := &ResolvedRevision{
 		Kind:  revisionCommit,
 		Value: spec.Commit,
@@ -47,6 +48,7 @@ func ResolveRevision(ctx context.Context, g LocalGit, dir string, spec *Revision
 	if !workspaceOID.MatchString(oid) {
 		return nil, errWorkspaceGitOID
 	}
+
 	result.OID = oid
 
 	return result, nil
@@ -68,6 +70,7 @@ func ResolveProjectDirectory(base, relative string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	current := root
 	for part := range strings.SplitSeq(relative, "/") {
 		current = filepath.Join(current, part)
@@ -96,6 +99,7 @@ func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*Observ
 	if err != nil {
 		return nil, err
 	}
+
 	branch, err := g.Local(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD")
 	if err != nil && gitter.ExitCode(err) != 1 {
 		return nil, err
@@ -113,6 +117,7 @@ func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*Observ
 	if err != nil {
 		return nil, err
 	}
+
 	state := &ObservedState{
 		Head:   head,
 		Branch: branch,
@@ -140,6 +145,7 @@ func ObserveWorkspaceState(ctx context.Context, g LocalGit, dir string) (*Observ
 			return nil, statErr
 		}
 	}
+
 	state.Verified = workspaceOID.MatchString(head)
 
 	return state, nil

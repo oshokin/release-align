@@ -6,7 +6,19 @@ import (
 	"time"
 )
 
+const (
+	// EnvPrefix marks release-align settings in the process environment.
+	// GITLAB_TOKEN stays unprefixed: it is a container credential, not a program setting.
+	EnvPrefix = "RELEASE_ALIGN_"
+)
+
+// Env returns the process variable for one release-align setting.
+func Env(name string) string {
+	return EnvPrefix + name
+}
+
 // ApplyEnv copies settings whose names match the flags.
+// name is the suffix. The process variable is RELEASE_ALIGN_ plus that suffix.
 func (c *Config) ApplyEnv(getenv func(string) string) error {
 	c.applyStringEnv(getenv)
 
@@ -64,7 +76,7 @@ func (*Config) envInt(getenv func(string) string, key string) (int, bool, error)
 
 	n, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, false, fmt.Errorf("%s: %w", key, err)
+		return 0, false, fmt.Errorf("%s: %w", Env(key), err)
 	}
 
 	return n, true, nil
@@ -81,7 +93,7 @@ func (c *Config) applyBoolEnv(getenv func(string) string) error {
 
 	b, err := strconv.ParseBool(s)
 	if err != nil {
-		return fmt.Errorf("%s: %w", key, err)
+		return fmt.Errorf("%s: %w", Env(key), err)
 	}
 
 	c.DryRun = b
@@ -157,7 +169,7 @@ func (*Config) envDuration(getenv func(string) string, key string) (time.Duratio
 
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return 0, false, fmt.Errorf("%s: %w", key, err)
+		return 0, false, fmt.Errorf("%s: %w", Env(key), err)
 	}
 
 	return d, true, nil

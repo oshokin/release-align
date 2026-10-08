@@ -308,7 +308,7 @@ func prepareCloneSource(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error 
 		return errGitLabSource
 	}
 
-	if err := spec.GitLab.Validate(); err != nil {
+	if err := spec.GitLab.ValidateForAPI(); err != nil {
 		return err
 	}
 

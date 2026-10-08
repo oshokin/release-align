@@ -17,7 +17,7 @@ import (
 // TestArchivePacksPinnedTrees checks filters, pins, and a dirty worktree.
 func TestArchivePacksPinnedTrees(t *testing.T) {
 	f := setup(t)
-	second := filepath.Join(f.base, "mailion", "two")
+	second := filepath.Join(f.base, "lamiona", "two")
 
 	if err := os.MkdirAll(filepath.Dir(second), 0o700); err != nil {
 		t.Fatal(err)
@@ -54,8 +54,8 @@ func TestArchivePacksPinnedTrees(t *testing.T) {
 				},
 			},
 			{
-				Path:   "mailion/two",
-				Groups: []string{"mailion"},
+				Path:   "lamiona/two",
+				Groups: []string{"lamiona"},
 			},
 		},
 	}
@@ -81,7 +81,7 @@ func TestArchivePacksPinnedTrees(t *testing.T) {
 
 	grouped, err := ArchiveWorkspace(
 		t.Context(),
-		archiveOpts(f, file, filepath.Join(f.base, "group.zip"), nil, []string{"mailion"}),
+		archiveOpts(f, file, filepath.Join(f.base, "group.zip"), nil, []string{"lamiona"}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestArchiveFailurePublishesNothing(t *testing.T) {
 	f := setup(t)
 	spec := archiveProject(f, nil)
 	spec.Projects = append(spec.Projects, &ProjectSpec{
-		Path: "mailion/missing",
+		Path: "lamiona/missing",
 	})
 	file := writeWorkspace(t, f.base, spec)
 	dest := filepath.Join(f.base, "missing.zip")
@@ -263,24 +263,24 @@ func TestArchiveEntryNames(t *testing.T) {
 		}
 	}
 
-	if _, err := names.add("mailion/", os.ModeDir); err != nil {
+	if _, err := names.add("lamiona/", os.ModeDir); err != nil {
 		t.Fatal(err)
 	}
 
-	skip, err := names.add("mailion/", os.ModeDir)
+	skip, err := names.add("lamiona/", os.ModeDir)
 	if err != nil || !skip {
 		t.Fatal(skip, err)
 	}
 
-	if _, err = names.add("mailion/file", 0o644); err != nil {
+	if _, err = names.add("lamiona/file", 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err = names.add("mailion/file", 0o644); err == nil {
+	if _, err = names.add("lamiona/file", 0o644); err == nil {
 		t.Fatal("duplicate file accepted")
 	}
 
-	if _, err = names.add("mailion/file/child", 0o644); err == nil {
+	if _, err = names.add("lamiona/file/child", 0o644); err == nil {
 		t.Fatal("file ancestor accepted")
 	}
 }

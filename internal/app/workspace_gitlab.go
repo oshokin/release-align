@@ -16,6 +16,7 @@ const (
 
 // Validate checks the GitLab source without calling the network.
 // Empty clone_protocol becomes ssh. Repeated groups are collapsed.
+// Groups may be empty: init can store a host before any namespace is chosen.
 func (s *GitLabSource) Validate() error {
 	if s == nil {
 		return errGitLabSource
@@ -45,6 +46,19 @@ func (s *GitLabSource) Validate() error {
 	return nil
 }
 
+// ValidateForAPI checks the source before a catalog read or a clone.
+func (s *GitLabSource) ValidateForAPI() error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+
+	if len(s.Groups) == 0 {
+		return errGitLabGroups
+	}
+
+	return nil
+}
+
 // validateGitLabURL accepts an https origin and an optional port.
 func validateGitLabURL(raw string) error {
 	parsed, err := url.Parse(raw)
@@ -64,9 +78,10 @@ func validateGitLabURL(raw string) error {
 }
 
 // normalizeGitLabGroups keeps the first copy of each exact namespace path.
+// An empty list is stored as-is. A blank or non-canonical entry is rejected.
 func normalizeGitLabGroups(groups []string) ([]string, error) {
 	if len(groups) == 0 {
-		return nil, errGitLabGroups
+		return []string{}, nil
 	}
 
 	seen := make(map[string]bool, len(groups))

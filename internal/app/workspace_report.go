@@ -132,6 +132,7 @@ func (r *WorkspaceRow) MatchesContract() bool {
 	if r == nil || r.Expected == nil || r.Actual == nil || r.ReasonCode != "" || r.StashOID != "" {
 		return false
 	}
+
 	e, a := r.Expected, r.Actual
 	if !a.Verified || a.Dirty || a.Operation != "" || !workspaceOID.MatchString(e.OID) || a.Head != e.OID {
 		return false
@@ -155,19 +156,23 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 	if r == nil {
 		return errWorkspaceNilReport
 	}
+
 	r.Ready, r.Coverage = false, false
 	r.SchemaVersion, r.ExpectedCount = 1, len(expected)
 
 	if r.Errors == nil {
 		r.Errors = []string{}
 	}
+
 	want := make(map[string]bool, len(expected))
 	for _, p := range expected {
 		if !canonicalProjectPath(p) || want[p] {
 			return fmt.Errorf("%w: %q", errWorkspaceExpectedPath, p)
 		}
+
 		want[p] = true
 	}
+
 	seen := make(map[string]bool, len(r.Rows))
 	allReady := true
 
@@ -175,6 +180,7 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 		if row == nil || !want[row.Path] || seen[row.Path] {
 			return errWorkspaceRows
 		}
+
 		seen[row.Path] = true
 		row.Ready = !r.DryRun && row.MatchesContract()
 		allReady = allReady && row.Ready
@@ -206,6 +212,7 @@ func WriteWorkspaceReport(dst io.Writer, report *WorkspaceReport) error {
 	if report == nil {
 		return errWorkspaceNilReport
 	}
+
 	enc := json.NewEncoder(dst)
 	enc.SetIndent("", "  ")
 

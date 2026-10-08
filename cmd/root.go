@@ -42,8 +42,10 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "release-align",
 		Short: "Switch local Git clones to the revisions in a workspace file",
-		Long: "Requires --workspace. Each selected project is moved to its exact branch, tag, or commit. " +
+		Long: "Each selected project is moved to its exact branch, tag, or commit. " +
 			"The run fails when a selected project is not ready. " +
+			"--workspace defaults to release-align.yml. " +
+			"An omitted --base-dir uses release-align.base-dir from that file. " +
 			"--remote asks GitLab for the configured groups after that and does not clone.",
 		Version:       fullVersion(),
 		SilenceUsage:  true,
@@ -127,7 +129,12 @@ func runCommand(cmd *cobra.Command, cfg *app.Config) error {
 // bindFlags registers the root command flags on cfg.
 func bindFlags(root *cobra.Command, cfg *app.Config) {
 	flags := root.Flags()
-	flags.StringVar(&cfg.BaseDir, "base-dir", cfg.BaseDir, "repository root directory")
+	flags.StringVar(
+		&cfg.BaseDir,
+		"base-dir",
+		cfg.BaseDir,
+		"repository root; omitted flag uses RELEASE_ALIGN_BASE_DIR, then release-align.base-dir",
+	)
 	flags.StringVar(
 		&cfg.Branch,
 		"branch",
@@ -144,7 +151,12 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 		"offline preview using cached refs; do not change repositories",
 	)
 	flags.StringVarP(&cfg.LogLevel, "log-level", "l", cfg.LogLevel, "log level: debug, info, warn, error (any case)")
-	flags.StringVar(&cfg.WorkspaceFile, "workspace", "", "workspace YAML (.yml or .yaml); exact targets, required")
+	flags.StringVar(
+		&cfg.WorkspaceFile,
+		"workspace",
+		defaultWorkspaceFile,
+		"workspace YAML (.yml or .yaml); exact targets",
+	)
 	flags.StringArrayVar(&cfg.Repositories, "repo", nil, "Select a workspace project by its relative path; repeatable")
 	flags.StringArrayVar(&cfg.Groups, "group", nil, "Select a workspace group; repeatable")
 	flags.StringVar(&cfg.Output, "output", cfg.Output, "Output format: text or json")

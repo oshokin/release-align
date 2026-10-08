@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -8,6 +9,10 @@ import (
 // TestEnvironment verifies flag-aligned environment variables and Go durations.
 func TestEnvironment(t *testing.T) {
 	cfg := DefaultConfig()
+	if cfg.BaseDir != "" {
+		t.Fatal(cfg.BaseDir)
+	}
+
 	env := map[string]string{
 		"BASE_DIR":      "/tmp/work",
 		"JOBS":          "8",
@@ -56,6 +61,7 @@ func TestValidation(t *testing.T) {
 
 	for _, mutate := range mutators {
 		c := DefaultConfig()
+		c.BaseDir = t.TempDir()
 		mutate(c)
 
 		if e := c.Validate(); e == nil {
@@ -64,6 +70,10 @@ func TestValidation(t *testing.T) {
 	}
 
 	c := DefaultConfig()
+	if e := c.Validate(); !errors.Is(e, errBaseDirEmpty) {
+		t.Fatal(e)
+	}
+
 	if e := c.ApplyEnv(envVar("DRY_RUN", "oops")); e == nil {
 		t.Fatal("invalid env accepted")
 	}

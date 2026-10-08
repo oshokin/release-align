@@ -21,7 +21,7 @@ func TestWorkspaceSyncBlocksMissingRepositoryBeforeCheckout(t *testing.T) {
 
 	spec := &WorkspaceSpec{
 		SchemaVersion: 1,
-		Release:       "Mailion 26.3.0",
+		Release:       "Lamiona 26.3.0",
 		DefaultRevision: &RevisionSpec{
 			Branch: "Release-26.3.0",
 		},

@@ -8,7 +8,8 @@ import (
 	"github.com/oshokin/release-align/internal/app"
 )
 
-// environmentFlags maps RELEASE_ALIGN_* suffixes to Cobra flag names.
+// environmentFlags maps setting names to Cobra flags.
+// The process variable is RELEASE_ALIGN_ plus the map key. Cobra does not read the environment.
 var environmentFlags = map[string]string{
 	"BASE_DIR":        "base-dir",
 	"JOBS":            "jobs",
@@ -32,7 +33,7 @@ func applyCommandEnv(command *cobra.Command, cfg *app.Config) error {
 			return ""
 		}
 
-		return os.Getenv(key)
+		return os.Getenv(app.Env(key))
 	}
 
 	return cfg.ApplyEnv(getenv)
@@ -49,8 +50,8 @@ func timeoutLocks(command *cobra.Command) *app.TimeoutLocks {
 	}
 }
 
-// durationLocked reports that a flag or its environment variable already chose the value.
-func durationLocked(command *cobra.Command, flag, envKey string) bool {
+// durationLocked reports that a flag or its RELEASE_ALIGN_ variable already chose the value.
+func durationLocked(command *cobra.Command, flag, name string) bool {
 	if command.Flags().Lookup(flag) == nil {
 		return false
 	}
@@ -59,5 +60,5 @@ func durationLocked(command *cobra.Command, flag, envKey string) bool {
 		return true
 	}
 
-	return os.Getenv(envKey) != ""
+	return os.Getenv(app.Env(name)) != ""
 }

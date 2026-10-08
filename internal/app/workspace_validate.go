@@ -140,6 +140,7 @@ func (r *RevisionSpec) Validate() error {
 	if r == nil {
 		return errWorkspaceRevisionMissing
 	}
+
 	n := 0
 	fields := []string{r.Branch, r.Tag, r.Commit}
 

@@ -17,7 +17,7 @@ func TestAppendDiscoveredProjectsPreservesIntent(t *testing.T) {
 	}
 	current := &WorkspaceSpec{
 		SchemaVersion: 1,
-		Release:       "Mailion 26.3",
+		Release:       "Lamiona 26.3",
 		DefaultRevision: &RevisionSpec{
 			Branch: "Release-26.3.0",
 		},

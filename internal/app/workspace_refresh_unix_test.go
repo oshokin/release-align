@@ -91,7 +91,7 @@ func TestRefreshRejectsSymlinkWorkspace(t *testing.T) {
 		t.Skip(err)
 	}
 
-	cloneRel(t, f, "mailion/search/new-indexer")
+	cloneRel(t, f, "lamiona/search/new-indexer")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
 		AddAll:  true,

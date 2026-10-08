@@ -16,8 +16,8 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	base := filepath.Join(root, "src")
 	remote := filepath.Join(root, "origin.git")
 	seed := filepath.Join(root, "seed")
-	first := filepath.Join(base, "mailion", "search", "pasifae")
-	second := filepath.Join(base, "mailion", "search", "new-indexer")
+	first := filepath.Join(base, "lamiona", "search", "calyra")
+	second := filepath.Join(base, "lamiona", "search", "new-indexer")
 	file := filepath.Join(root, "release-align.yml")
 
 	gitCmd(t, root, "init", "--bare", "--initial-branch=master", remote)
@@ -50,8 +50,8 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	args := []string{"workspace", "refresh", "--base-dir", base, "--file", file}
 
 	if code := Execute(args, &out, &errOut); code != exitOK ||
-		!strings.Contains(out.String(), "+ mailion/search/new-indexer") ||
-		!strings.Contains(out.String(), "groups: mailion, mailion/search") ||
+		!strings.Contains(out.String(), "+ lamiona/search/new-indexer") ||
+		!strings.Contains(out.String(), "groups: lamiona, lamiona/search") ||
 		!strings.Contains(out.String(), "No changes written") ||
 		!strings.Contains(out.String(), "Readiness was not checked") ||
 		strings.Contains(out.String(), "ready=true") ||
@@ -71,11 +71,11 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	errOut.Reset()
 
 	addArgs := []string{
-		"workspace", "refresh", "--base-dir", base, "--file", file, "--add", "mailion/search/new-indexer",
+		"workspace", "refresh", "--base-dir", base, "--file", file, "--add", "lamiona/search/new-indexer",
 	}
 	if code := Execute(addArgs, &out, &errOut); code != exitOK ||
 		!strings.Contains(out.String(), "Added: 1") ||
-		!strings.Contains(readTestFileString(t, file), "mailion/search/new-indexer") {
+		!strings.Contains(readTestFileString(t, file), "lamiona/search/new-indexer") {
 		t.Fatalf("add %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 
@@ -85,7 +85,7 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	syncArgs := []string{
 		"--base-dir", base,
 		"--workspace", file,
-		"--group", "mailion/search",
+		"--group", "lamiona/search",
 		"--attempts", "1",
 		"--jobs", "1",
 	}
@@ -97,7 +97,6 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 // TestWorkspaceRefreshUsage covers missing flags, combined add modes, and a comma inside one path.
 func TestWorkspaceRefreshUsage(t *testing.T) {
 	rejected := [][]string{
-		{"workspace", "refresh"},
 		{"workspace", "refresh", "--base-dir", "x", "--file", "y", "--add", "a", "--add-all"},
 		{"workspace", "refresh", "--base-dir", "x", "--file", "y", "extra"},
 	}
@@ -114,7 +113,7 @@ func TestWorkspaceRefreshUsage(t *testing.T) {
 	isolateGit(t, root)
 	base := filepath.Join(root, "src")
 	remote := filepath.Join(root, "origin.git")
-	repo := filepath.Join(base, "mailion", "search", "pasifae")
+	repo := filepath.Join(base, "lamiona", "search", "calyra")
 	file := filepath.Join(root, "release-align.yml")
 	gitCmd(t, root, "init", "--bare", "--initial-branch=master", remote)
 	gitCmd(t, root, "clone", remote, repo)
@@ -138,7 +137,7 @@ func TestWorkspaceRefreshUsage(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 
-	args := []string{"workspace", "refresh", "--base-dir", base, "--file", file, "--add", "mailion/search/new,indexer"}
+	args := []string{"workspace", "refresh", "--base-dir", base, "--file", file, "--add", "lamiona/search/new,indexer"}
 	if code := Execute(args, &out, &errOut); code != exitUsage || !strings.Contains(errOut.String(), "new,indexer") {
 		t.Fatalf("%d %s %s", code, out.String(), errOut.String())
 	}

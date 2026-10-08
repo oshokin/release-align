@@ -19,14 +19,14 @@ func TestWorkspaceYAMLExampleReadsWestFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if spec.Release != "Mailion 26.3.0" || spec.DefaultRevision.Branch != "Release-26.3.0" {
+	if spec.Release != "Lamiona 26.3.0" || spec.DefaultRevision.Branch != "Release-26.3.0" {
 		t.Fatalf("%+v", spec)
 	}
 
-	if spec.Projects[0].Path != "mailion/search/pasifae" || spec.Projects[0].Name != "pasifae" ||
-		spec.Projects[0].URL != "ssh://git@gitlab.stageoffice.ru/mailion/search/pasifae.git" ||
+	if spec.Projects[0].Path != "lamiona/search/calyra" || spec.Projects[0].Name != "calyra" ||
+		spec.Projects[0].URL != "ssh://git@git.example.com/lamiona/search/calyra.git" ||
 		spec.RevisionFor(spec.Projects[0]).Branch != "Release-26.3.0" {
-		t.Fatalf("pasifae %+v", spec.Projects[0])
+		t.Fatalf("calyra %+v", spec.Projects[0])
 	}
 
 	if spec.Projects[1].Revision.Tag != "v26.3.1" || spec.GitLab.CloneProtocol != cloneProtocolSSH ||
@@ -47,23 +47,23 @@ func TestWorkspaceYAMLRemoteURLDoesNotAddGitSuffix(t *testing.T) {
 		"    - name: company\n" +
 		"      url-base: ssh://git@gitlab.example\n" +
 		"  projects:\n" +
-		"    - name: pasifae\n" +
-		"      repo-path: mailion/search/pasifae\n" +
-		"      path: mailion/search/pasifae\n" +
-		"      groups: [mailion, mailion/search]\n"
+		"    - name: calyra\n" +
+		"      repo-path: lamiona/search/calyra\n" +
+		"      path: lamiona/search/calyra\n" +
+		"      groups: [lamiona, lamiona/search]\n"
 
 	spec, err := DecodeWorkspace(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if spec.Projects[0].URL != "ssh://git@gitlab.example/mailion/search/pasifae" {
+	if spec.Projects[0].URL != "ssh://git@gitlab.example/lamiona/search/calyra" {
 		t.Fatal(spec.Projects[0].URL)
 	}
 
 	conflict := strings.Replace(
 		raw,
-		"repo-path: mailion/search/pasifae\n",
+		"repo-path: lamiona/search/calyra\n",
 		"url: ssh://git@host/a.git\n      repo-path: a\n",
 		1,
 	)

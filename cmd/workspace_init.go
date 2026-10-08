@@ -18,8 +18,17 @@ type workspaceInitCommand struct {
 	file string
 }
 
-// errWorkspaceInitFlags means a required init flag was omitted.
-var errWorkspaceInitFlags = errors.New("workspace init requires --base-dir, --branch and --file")
+const (
+	// defaultInitBranch is stored when --branch is omitted.
+	defaultInitBranch = "master"
+	// defaultWorkspaceFile is created in the current directory when --file is omitted.
+	defaultWorkspaceFile = "release-align.yml"
+	// gitlabURLFromBaseNotice is printed when the GitLab URL came from the base directory name.
+	gitlabURLFromBaseNotice = "GitLab URL %s taken from the base directory name.\n"
+)
+
+// errWorkspaceInitFlags means a required init flag was omitted or cleared.
+var errWorkspaceInitFlags = errors.New("workspace init requires --base-dir")
 
 // newWorkspaceCommand groups inventory management without inheriting synchronization flags.
 func newWorkspaceCommand() *cobra.Command {
@@ -34,30 +43,41 @@ func newWorkspaceCommand() *cobra.Command {
 	initCommand := &cobra.Command{
 		Use:   "init",
 		Short: "Create an inventory from existing local clones and directory groups",
-		Long: "Scan --base-dir for Git working trees and write a new release-align.yml.\n" +
+		Long: "Scan --base-dir for Git working trees and write release-align.yml.\n" +
 			"The file is a west manifest plus a release-align block. It is not a full west workspace.\n" +
-			"A group is a parent directory prefix: mailion/search/pasifae is in mailion and mailion/search.\n" +
+			"A group is a parent directory prefix: lamiona/search/calyra is in lamiona and lamiona/search.\n" +
 			"A repository directly under --base-dir has no group. Hidden directories and directory symlinks are skipped.\n" +
-			"The scan does not fetch, and it does not check that --branch exists. --file must not already exist.\n" +
+			"--branch defaults to master and is not checked against the server. --file defaults to release-align.yml and must not already exist.\n" +
+			"An omitted --gitlab-url uses the last --base-dir component when that name is a DNS host.\n" +
 			"Clones that are not on disk are omitted. Review the file before sync.",
 		Args: cobra.NoArgs,
 		RunE: handler.run,
 	}
 	flags := initCommand.Flags()
-	flags.StringVar(&options.BaseDir, "base-dir", "", "directory containing existing clones (required)")
+	flags.StringVar(
+		&options.BaseDir,
+		"base-dir",
+		"",
+		"directory containing existing clones; omitted flag uses RELEASE_ALIGN_BASE_DIR",
+	)
 	flags.StringVar(
 		&options.Branch,
 		"branch",
-		"",
-		"explicit default branch; existence is checked by sync/status (required)",
+		defaultInitBranch,
+		"default branch stored as refs/heads/<branch>; existence is checked by sync/status",
 	)
-	flags.StringVar(&handler.file, "file", "", "new workspace YAML filename (.yml or .yaml); must not exist (required)")
+	flags.StringVar(
+		&handler.file,
+		"file",
+		defaultWorkspaceFile,
+		"new workspace YAML filename (.yml or .yaml); must not exist",
+	)
 	flags.StringVar(&options.Release, "release", "", "optional human-readable release label")
 	flags.StringVar(
 		&options.GitLabURL,
 		"gitlab-url",
 		"",
-		"https origin saved for later --remote and clone; no API call",
+		"https origin saved for later --remote and clone; omitted flag uses a DNS base directory name",
 	)
 	flags.StringArrayVar(
 		&options.GitLabGroups,
@@ -75,12 +95,10 @@ func newWorkspaceCommand() *cobra.Command {
 
 // run scans first, validates the complete document, and only then creates the destination.
 func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
-	if c.options.BaseDir == "" || c.options.Branch == "" || c.file == "" {
-		return &commandError{
-			code:  exitUsage,
-			cause: errWorkspaceInitFlags,
-		}
+	if err := c.resolveBaseDir(command); err != nil {
+		return err
 	}
+
 	defaults := app.DefaultConfig()
 	client := &gitter.Client{
 		LocalTimeout: defaults.LocalTimeout,
@@ -119,6 +137,16 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		}
 	}
 
+	if spec.GitLabURLFromBase {
+		_, err = fmt.Fprintf(command.OutOrStdout(), gitlabURLFromBaseNotice, spec.GitLab.URL)
+		if err != nil {
+			return &commandError{
+				code:  exitFailed,
+				cause: err,
+			}
+		}
+	}
+
 	if len(spec.URLGaps) == 0 {
 		return nil
 	}
@@ -132,6 +160,32 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		return &commandError{
 			code:  exitFailed,
 			cause: err,
+		}
+	}
+
+	return nil
+}
+
+// resolveBaseDir stores --base-dir or RELEASE_ALIGN_BASE_DIR. Init does not read a workspace file.
+func (c *workspaceInitCommand) resolveBaseDir(command *cobra.Command) error {
+	choice := &baseDirChoice{
+		command: command,
+		current: c.options.BaseDir,
+	}
+
+	base, err := savedBaseDir(choice)
+	if err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	c.options.BaseDir = base
+	if c.options.Branch == "" || c.file == "" {
+		return &commandError{
+			code:  exitUsage,
+			cause: errWorkspaceInitFlags,
 		}
 	}
 

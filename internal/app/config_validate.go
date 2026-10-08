@@ -10,21 +10,15 @@ import (
 
 // Validate checks numeric limits and expands a leading ~ in the base directory.
 func (c *Config) Validate() error {
-	if c.BaseDir == "" {
-		return errBaseDirEmpty
-	}
-
-	if err := c.expandHomeWhenNeeded(); err != nil {
+	if err := c.ValidateSettings(); err != nil {
 		return err
 	}
 
-	p, err := filepath.Abs(c.BaseDir)
-	if err != nil {
-		return err
-	}
+	return c.validateBaseDir()
+}
 
-	c.BaseDir = p
-
+// ValidateSettings checks limits that do not need a base directory.
+func (c *Config) ValidateSettings() error {
 	if c.Output == "" {
 		c.Output = outputText
 	}
@@ -71,6 +65,26 @@ func (c *Config) ValidateWorkspace(mode string) error {
 	if mode == ModeStatus && c.DryRun {
 		return errWorkspaceStatusDryRun
 	}
+
+	return nil
+}
+
+// validateBaseDir requires a repository root and stores its absolute path.
+func (c *Config) validateBaseDir() error {
+	if c.BaseDir == "" {
+		return errBaseDirEmpty
+	}
+
+	if err := c.expandHomeWhenNeeded(); err != nil {
+		return err
+	}
+
+	base, err := filepath.Abs(c.BaseDir)
+	if err != nil {
+		return err
+	}
+
+	c.BaseDir = base
 
 	return nil
 }

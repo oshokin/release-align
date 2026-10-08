@@ -13,6 +13,8 @@ type WorkspaceSpec struct {
 	SchemaVersion int
 	// Release is an optional label stored with the inventory.
 	Release string
+	// BaseDir is the absolute root recorded by workspace init.
+	BaseDir string
 	// DefaultRevision is the inherited revision. Nil with implicitMaster means west's master.
 	DefaultRevision *RevisionSpec
 	// shortDefault is a defaults.revision that still needs a local ref lookup.
@@ -29,6 +31,8 @@ type WorkspaceSpec struct {
 	Projects []*ProjectSpec
 	// URLGaps lists paths whose origin URL was left empty.
 	URLGaps []string
+	// GitLabURLFromBase reports that init took the GitLab URL from the base directory name.
+	GitLabURLFromBase bool
 }
 
 // GroupFilter is one west group-filter entry. The last entry for a name wins.
@@ -217,16 +221,18 @@ func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 	}
 
 	cloned := &WorkspaceSpec{
-		SchemaVersion:   w.SchemaVersion,
-		Release:         w.Release,
-		DefaultRevision: w.DefaultRevision.clone(),
-		shortDefault:    w.shortDefault,
-		implicitMaster:  w.implicitMaster,
-		GitLab:          w.GitLab.clone(),
-		Timeouts:        w.Timeouts.clone(),
-		GroupFilter:     cloneGroupFilters(w.GroupFilter),
-		Projects:        projects,
-		URLGaps:         slices.Clone(w.URLGaps),
+		SchemaVersion:     w.SchemaVersion,
+		Release:           w.Release,
+		BaseDir:           w.BaseDir,
+		DefaultRevision:   w.DefaultRevision.clone(),
+		shortDefault:      w.shortDefault,
+		implicitMaster:    w.implicitMaster,
+		GitLab:            w.GitLab.clone(),
+		Timeouts:          w.Timeouts.clone(),
+		GroupFilter:       cloneGroupFilters(w.GroupFilter),
+		Projects:          projects,
+		URLGaps:           slices.Clone(w.URLGaps),
+		GitLabURLFromBase: w.GitLabURLFromBase,
 	}
 
 	return cloned
