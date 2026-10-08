@@ -44,7 +44,7 @@ func TestWorkspaceInitDefaultsBranchAndFile(t *testing.T) {
 
 	if !strings.Contains(body, "revision: refs/heads/"+defaultInitBranch) ||
 		!strings.Contains(body, "path: lamiona/search/calyra") ||
-		!strings.Contains(body, "base-dir: \""+recorded+"\"") ||
+		!strings.Contains(body, "base-dir: "+yamlDoubleQuoted(recorded)) ||
 		strings.Contains(body, "gitlab:") {
 		t.Fatal(body)
 	}

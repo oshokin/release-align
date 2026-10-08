@@ -111,7 +111,7 @@ func TestInitBaseDirUsesFlagThenEnvironment(t *testing.T) {
 	recorded := canonicalTestPath(t, base)
 	body := readTestFileString(t, filepath.Join(root, "from-flag.yml"))
 
-	if !strings.Contains(body, recorded) || strings.Contains(body, other) {
+	if !strings.Contains(body, yamlDoubleQuoted(recorded)) || strings.Contains(body, yamlDoubleQuoted(other)) {
 		t.Fatal(body)
 	}
 
@@ -124,7 +124,7 @@ func TestInitBaseDirUsesFlagThenEnvironment(t *testing.T) {
 	}
 
 	body = readTestFileString(t, filepath.Join(root, "from-env.yml"))
-	if !strings.Contains(body, recorded) {
+	if !strings.Contains(body, yamlDoubleQuoted(recorded)) {
 		t.Fatal(body)
 	}
 }
@@ -269,7 +269,7 @@ func writeWorkspaceBase(t *testing.T, path, base string) {
 		"release-align:\n" +
 		"  schema-version: 1\n"
 	if base != "" {
-		body += "  base-dir: \"" + base + "\"\n"
+		body += "  base-dir: " + yamlDoubleQuoted(base) + "\n"
 	}
 
 	writeTestFile(t, path, body)
@@ -296,6 +296,13 @@ func checkoutCalyra(t *testing.T) (string, string) {
 	t.Chdir(root)
 
 	return root, base
+}
+
+// yamlDoubleQuoted is the double-quoted scalar the workspace writer emits.
+func yamlDoubleQuoted(value string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value)
+
+	return `"` + escaped + `"`
 }
 
 // canonicalTestPath is the absolute path init stores for a base directory.
