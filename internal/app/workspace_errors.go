@@ -181,7 +181,7 @@ var (
 	// errGitLabProtocol means clone-protocol is neither ssh nor https.
 	errGitLabProtocol = errors.New("gitlab clone-protocol must be ssh or https")
 	// errRemoteDryRun means --dry-run was combined with --remote.
-	errRemoteDryRun = errors.New("--dry-run cannot be combined with --remote; use status --remote")
+	errRemoteDryRun = errors.New("--dry-run cannot be combined with --remote; use workspace status --remote")
 	// errRemoteToken means GITLAB_TOKEN is empty.
 	errRemoteToken = errors.New("GITLAB_TOKEN is required for --remote and workspace clone")
 	// errRemoteInventory means the GitLab listing did not finish.

@@ -403,7 +403,9 @@ func TestRefreshSkipsBareAndDirectorySymlink(t *testing.T) {
 
 // TestRefreshPartialCloneDoesNotFetch checks that comparing a promisor clone stays offline.
 func TestRefreshPartialCloneDoesNotFetch(t *testing.T) {
-	f, _, calls := partialClone(t)
+	run := partialClone(t)
+	f := run.fixture
+	calls := run.calls
 	before := localGitSnapshot(t, f.repo)
 	spec := oneProject(t, "group/repo with spaces", nil)
 	file := saveWorkspace(t, spec)

@@ -16,6 +16,18 @@ type LocalGit interface {
 	Local(ctx context.Context, dir string, args ...string) (string, error)
 }
 
+// revisionRefQuery selects the cached ref for one requested revision.
+type revisionRefQuery struct {
+	// git reads local refs.
+	git LocalGit
+	// dir is the repository.
+	dir string
+	// spec is the requested branch, tag, or commit.
+	spec *RevisionSpec
+	// result receives the kind and display value.
+	result *ResolvedRevision
+}
+
 // ErrWorkspaceTargetMissing means the requested revision is not in the local repository.
 var ErrWorkspaceTargetMissing = errors.New("workspace target is missing")
 
@@ -30,7 +42,14 @@ func ResolveRevision(ctx context.Context, g LocalGit, dir string, spec *Revision
 		Value: spec.Commit,
 	}
 
-	ref, err := revisionRef(ctx, g, dir, spec, result)
+	query := &revisionRefQuery{
+		git:    g,
+		dir:    dir,
+		spec:   spec,
+		result: result,
+	}
+
+	ref, err := revisionRef(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -187,28 +206,22 @@ func sameWorktreeRoot(ctx context.Context, g LocalGit, dir string) error {
 }
 
 // revisionRef selects the cached ref that must resolve to the requested revision.
-func revisionRef(
-	ctx context.Context,
-	g LocalGit,
-	dir string,
-	spec *RevisionSpec,
-	result *ResolvedRevision,
-) (string, error) {
-	if spec.Branch != "" {
-		result.Kind, result.Value = revisionBranch, spec.Branch
-		_, err := g.Local(ctx, dir, "check-ref-format", "refs/heads/"+spec.Branch)
+func revisionRef(ctx context.Context, query *revisionRefQuery) (string, error) {
+	if query.spec.Branch != "" {
+		query.result.Kind, query.result.Value = revisionBranch, query.spec.Branch
+		_, err := query.git.Local(ctx, query.dir, "check-ref-format", "refs/heads/"+query.spec.Branch)
 
-		return "refs/remotes/origin/" + spec.Branch, err
+		return "refs/remotes/origin/" + query.spec.Branch, err
 	}
 
-	if spec.Tag != "" {
-		result.Kind, result.Value = revisionTag, spec.Tag
-		_, err := g.Local(ctx, dir, "check-ref-format", "refs/tags/"+spec.Tag)
+	if query.spec.Tag != "" {
+		query.result.Kind, query.result.Value = revisionTag, query.spec.Tag
+		_, err := query.git.Local(ctx, query.dir, "check-ref-format", "refs/tags/"+query.spec.Tag)
 
-		return "refs/tags/" + spec.Tag, err
+		return "refs/tags/" + query.spec.Tag, err
 	}
 
-	return spec.Commit, nil
+	return query.spec.Commit, nil
 }
 
 // gitOperationNames is shared by safety checks and final observations.

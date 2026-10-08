@@ -40,7 +40,7 @@ func (f *failWriteCloser) Close() error {
 }
 
 // Write accepts one byte of a non-empty buffer.
-func (shortWriteCloser) Write(p []byte) (int, error) {
+func (*shortWriteCloser) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
@@ -49,7 +49,7 @@ func (shortWriteCloser) Write(p []byte) (int, error) {
 }
 
 // Close reports success.
-func (shortWriteCloser) Close() error {
+func (*shortWriteCloser) Close() error {
 	return nil
 }
 
@@ -105,7 +105,7 @@ func TestFinishExclusiveRemovesIncompleteFile(t *testing.T) {
 		},
 		{
 			name: "short",
-			file: shortWriteCloser{},
+			file: &shortWriteCloser{},
 			want: io.ErrShortWrite,
 		},
 		{

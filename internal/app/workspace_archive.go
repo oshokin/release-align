@@ -218,7 +218,13 @@ func newArchiveJob(ctx context.Context, opts *WorkspaceArchiveOptions) (*archive
 		return nil, errArchiveEmpty
 	}
 
-	if err = ResolveWorkspaceRevisions(ctx, gitClient, base, spec, selected); err != nil {
+	lookup := &revisionLookup{
+		git:      gitClient,
+		base:     base,
+		spec:     spec,
+		projects: selected,
+	}
+	if err = ResolveWorkspaceRevisions(ctx, lookup); err != nil {
 		return nil, err
 	}
 

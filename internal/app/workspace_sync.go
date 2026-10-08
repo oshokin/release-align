@@ -54,6 +54,8 @@ func (r *runner) syncWorkspace(ctx context.Context, items []*workspaceItem) (str
 func (r *runner) workspacePreflight(ctx context.Context, items []*workspaceItem) error {
 	checked := map[string]struct{}{}
 
+	r.beginPhase("probe", r.probeCount(items))
+
 	for _, item := range items {
 		if item.repo == nil || !rowPending(item.row) {
 			continue
@@ -64,6 +66,8 @@ func (r *runner) workspacePreflight(ctx context.Context, items []*workspaceItem)
 		}
 
 		err := r.probe(ctx, item.repo)
+		r.step(ctx, item.repo.relative, "origin checked")
+
 		if err == nil {
 			checked[item.repo.endpoint] = struct{}{}
 

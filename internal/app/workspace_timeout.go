@@ -108,7 +108,7 @@ func ApplySpecTimeouts(cfg *Config, spec *WorkspaceSpec) error {
 }
 
 // applyCloneTimeouts copies unlocked workspace overrides onto clone options.
-func applyCloneTimeouts(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error {
+func (j *cloneJob) applyCloneTimeouts(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error {
 	if opts == nil || spec == nil || spec.Timeouts == nil {
 		return nil
 	}
@@ -203,11 +203,11 @@ func (t *WorkspaceTimeouts) clone() *WorkspaceTimeouts {
 	}
 
 	return &WorkspaceTimeouts{
-		Probe:   cloneTimeoutString(t.Probe),
-		Fetch:   cloneTimeoutString(t.Fetch),
-		Local:   cloneTimeoutString(t.Local),
-		Clone:   cloneTimeoutString(t.Clone),
-		Archive: cloneTimeoutString(t.Archive),
+		Probe:   t.cloneTimeoutString(t.Probe),
+		Fetch:   t.cloneTimeoutString(t.Fetch),
+		Local:   t.cloneTimeoutString(t.Local),
+		Clone:   t.cloneTimeoutString(t.Clone),
+		Archive: t.cloneTimeoutString(t.Archive),
 	}
 }
 
@@ -240,7 +240,7 @@ func unlockedDuration(locked bool, name string, raw *string, current time.Durati
 }
 
 // cloneTimeoutString copies one optional duration string.
-func cloneTimeoutString(raw *string) *string {
+func (t *WorkspaceTimeouts) cloneTimeoutString(raw *string) *string {
 	if raw == nil {
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/oshokin/release-align/internal/logger"
 	"github.com/oshokin/release-align/internal/retry"
 )
 
@@ -44,6 +45,10 @@ type (
 		beforeWorkspaceCheckout func()
 		// afterWorkspaceCheckout runs after one switch and before that repository is read back.
 		afterWorkspaceCheckout func(*repository)
+		// progress counts the phase that is running now.
+		progress *logger.Progress
+		// report keeps the latest phase counts for the final summary.
+		report *WorkspaceReport
 	}
 )
 

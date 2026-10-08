@@ -5,6 +5,18 @@ import (
 	"strings"
 )
 
+// branchSwitch is a local branch checkout onto an already verified remote tip.
+type branchSwitch struct {
+	// repo is the local clone.
+	repo *repository
+	// branch is the short branch name.
+	branch string
+	// remote is the matching refs/remotes/origin ref.
+	remote string
+	// create is true when the local branch does not exist yet.
+	create bool
+}
+
 // checkoutPlanned moves HEAD to the planned object id.
 func (r *runner) checkoutPlanned(ctx context.Context, item *workspaceItem) error {
 	if item.resolved.Kind != revisionBranch {
@@ -23,7 +35,13 @@ func (r *runner) checkoutPlanned(ctx context.Context, item *workspaceItem) error
 		return err
 	}
 
-	if err = r.switchTo(ctx, item.repo, item.resolved.Value, remote, !exists); err != nil {
+	sw := &branchSwitch{
+		repo:   item.repo,
+		branch: item.resolved.Value,
+		remote: remote,
+		create: !exists,
+	}
+	if err = r.switchTo(ctx, sw); err != nil {
 		return err
 	}
 
@@ -75,15 +93,15 @@ func (r *runner) checkoutOID(ctx context.Context, repo *repository, oid string) 
 }
 
 // switchTo checks out branch, creating it from the origin ref when it is missing locally.
-func (r *runner) switchTo(ctx context.Context, repo *repository, branch, remote string, create bool) error {
+func (r *runner) switchTo(ctx context.Context, sw *branchSwitch) error {
 	args := []string{"switch", gitNoOverwriteIgnore}
-	if create {
-		args = append(args, "--create", branch, "--track", remote)
+	if sw.create {
+		args = append(args, "--create", sw.branch, "--track", sw.remote)
 	} else {
-		args = append(args, "--", branch)
+		args = append(args, "--", sw.branch)
 	}
 
-	_, err := r.git.Local(ctx, repo.path, args...)
+	_, err := r.git.Local(ctx, sw.repo.path, args...)
 
 	return err
 }

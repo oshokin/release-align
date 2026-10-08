@@ -37,10 +37,13 @@ func TestAppendDiscoveredProjectsPreservesIntent(t *testing.T) {
 	}
 	selected := []*ProjectSpec{rediscovered, newB, newA, newA}
 
-	next, added, err := AppendDiscoveredProjects(current, selected)
+	appended, err := AppendDiscoveredProjects(current, selected)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	next := appended.spec
+	added := appended.added
 
 	wantAdded := []string{"a/new", "b/new"}
 	if !reflect.DeepEqual(added, wantAdded) || !reflect.DeepEqual(next.Projects[0], existing) {
@@ -80,12 +83,13 @@ func TestAppendDiscoveredProjectsRequiresDefault(t *testing.T) {
 	}
 	selected := []*ProjectSpec{candidate}
 
-	if _, _, err := AppendDiscoveredProjects(current, selected); err == nil {
+	if _, err := AppendDiscoveredProjects(current, selected); err == nil {
 		t.Fatal("new project without desired revision was accepted")
 	}
 
-	if _, added, err := AppendDiscoveredProjects(current, nil); err != nil || len(added) != 0 {
-		t.Fatalf("no-op failed: added=%v err=%v", added, err)
+	appended, err := AppendDiscoveredProjects(current, nil)
+	if err != nil || appended == nil || len(appended.added) != 0 {
+		t.Fatalf("no-op failed: added=%v err=%v", appended, err)
 	}
 }
 
@@ -119,7 +123,7 @@ func TestAppendDiscoveredProjectsRejectsInvalidCandidates(t *testing.T) {
 
 	for _, candidate := range candidates {
 		selected := []*ProjectSpec{candidate}
-		if _, _, err := AppendDiscoveredProjects(current, selected); err == nil {
+		if _, err := AppendDiscoveredProjects(current, selected); err == nil {
 			t.Fatalf("accepted invalid discovery: %+v", candidate)
 		}
 	}

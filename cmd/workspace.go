@@ -11,6 +11,41 @@ import (
 	"github.com/oshokin/release-align/internal/logger"
 )
 
+// withCommandLog attaches a text logger to the command context.
+// JSON output keeps those lines on stderr.
+func withCommandLog(cmd *cobra.Command, json bool, level string) context.Context {
+	dest := cmd.OutOrStdout()
+	if json {
+		dest = cmd.ErrOrStderr()
+	}
+
+	parsed, _ := logger.ParseLogLevel(level)
+	log := logger.NewWithWriter(parsed, dest)
+
+	return logger.ToContext(cmd.Context(), log)
+}
+
+// newSyncCommand moves the selected clones onto the workspace release.
+func newSyncCommand(cfg *app.Config) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "sync",
+		Short: "Move selected clones onto the workspace release",
+		Long: "Each selected project is moved to its exact branch, tag, or commit. " +
+			"The run fails when a selected project is not ready. " +
+			"--workspace defaults to release-align.yml. " +
+			"An omitted --base-dir uses release-align.base-dir from that file. " +
+			"--remote asks GitLab for the configured groups after that and does not clone.",
+		Args:          noPositionalArgs,
+		RunE:          func(cmd *cobra.Command, _ []string) error { return runCommand(cmd, cfg) },
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	command.SetFlagErrorFunc(usageFlagError)
+	bindFlags(command, cfg)
+
+	return command
+}
+
 // newStatusCommand builds the offline workspace status subcommand.
 func newStatusCommand(cfg *app.Config) *cobra.Command {
 	command := &cobra.Command{
@@ -19,16 +54,7 @@ func newStatusCommand(cfg *app.Config) *cobra.Command {
 		Long: "status reads cached refs and worktrees. Without --remote it does not call GitLab. " +
 			"--remote adds the group inventory after the local check and does not clone. " +
 			"--dry-run is rejected, including together with --remote.",
-		Args: func(cmd *cobra.Command, args []string) error {
-			if err := cobra.NoArgs(cmd, args); err != nil {
-				return &commandError{
-					code:  exitUsage,
-					cause: err,
-				}
-			}
-
-			return nil
-		},
+		Args: noPositionalArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := applyCommandEnv(cmd, cfg); err != nil {
 				return usageCommand(cmd, cfg, app.ModeStatus, err)
@@ -39,12 +65,7 @@ func newStatusCommand(cfg *app.Config) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
-	})
+	command.SetFlagErrorFunc(usageFlagError)
 	bindFlags(command, cfg)
 
 	return command

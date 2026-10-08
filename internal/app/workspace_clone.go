@@ -256,15 +256,15 @@ func lockClone(base, path string) (*cloneHold, error) {
 // locked lists GitLab, checks every selected path, then clones what is missing.
 func (j *cloneJob) locked(ctx context.Context) (*CloneReport, error) {
 	j.spec = j.document.spec
-	if err := applyCloneTimeouts(j.opts, j.spec); err != nil {
+	if err := j.applyCloneTimeouts(j.opts, j.spec); err != nil {
 		return j.report, err
 	}
 
-	if err := prepareCloneSource(j.opts, j.spec); err != nil {
+	if err := j.prepareCloneSource(j.opts, j.spec); err != nil {
 		return j.report, err
 	}
 
-	j.cfg = cloneConfig(j.opts, j.base)
+	j.cfg = j.cloneConfig(j.opts, j.base)
 	if j.opts.progress != nil {
 		_, _ = fmt.Fprintln(j.opts.progress, "Checking GitLab inventory...")
 	}
@@ -303,7 +303,7 @@ func (j *cloneJob) locked(ctx context.Context) (*CloneReport, error) {
 }
 
 // prepareCloneSource checks the saved GitLab block and the API token.
-func prepareCloneSource(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error {
+func (j *cloneJob) prepareCloneSource(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error {
 	if spec == nil || spec.GitLab == nil {
 		return errGitLabSource
 	}
@@ -329,7 +329,7 @@ func prepareCloneSource(opts *WorkspaceCloneOptions, spec *WorkspaceSpec) error 
 }
 
 // cloneConfig carries timeouts into the shared GitLab client helper.
-func cloneConfig(opts *WorkspaceCloneOptions, base string) *Config {
+func (j *cloneJob) cloneConfig(opts *WorkspaceCloneOptions, base string) *Config {
 	cfg := &Config{
 		BaseDir:       base,
 		ProbeTimeout:  opts.ProbeTimeout,

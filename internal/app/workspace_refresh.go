@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // WorkspaceRefreshOptions selects local clones to compare or append.
@@ -33,6 +35,14 @@ type WorkspaceRefreshResult struct {
 	Added []string
 	// Written reports that the file was replaced.
 	Written bool
+}
+
+// refreshedInventory is the local diff and the clones found under the base directory.
+type refreshedInventory struct {
+	// result is the counts and path lists.
+	result *WorkspaceRefreshResult
+	// discovered are the working trees found on disk.
+	discovered []*ProjectSpec
 }
 
 // localTimeoutGit is a Git client whose local command limit can be replaced.
@@ -124,12 +134,12 @@ func previewWorkspaceRefresh(
 		return nil, err
 	}
 
-	result, _, err := refreshInventory(ctx, g, options.BaseDir, document.spec)
+	refreshed, err := refreshInventory(ctx, g, options.BaseDir, document.spec)
 	if err != nil {
 		return nil, err
 	}
 
-	return result, nil
+	return refreshed.result, nil
 }
 
 // writeWorkspaceRefresh holds the sibling lock from the reread through publication.
@@ -170,20 +180,26 @@ func publishRefresh(
 	document *workspaceDocument,
 	options *WorkspaceRefreshOptions,
 ) (*WorkspaceRefreshResult, error) {
-	result, discovered, err := refreshInventory(ctx, g, options.BaseDir, document.spec)
+	refreshed, err := refreshInventory(ctx, g, options.BaseDir, document.spec)
 	if err != nil {
 		return nil, err
 	}
+
+	result := refreshed.result
+	discovered := refreshed.discovered
 
 	selected, err := selectRefreshProjects(document.spec, discovered, options)
 	if err != nil {
 		return nil, err
 	}
 
-	next, added, err := AppendDiscoveredProjects(document.spec, selected)
+	appended, err := AppendDiscoveredProjects(document.spec, selected)
 	if err != nil {
 		return nil, refreshUsage(err)
 	}
+
+	next := appended.spec
+	added := appended.added
 
 	if len(added) == 0 {
 		return result, nil
@@ -241,20 +257,20 @@ func refreshInventory(
 	g LocalGit,
 	baseDir string,
 	spec *WorkspaceSpec,
-) (*WorkspaceRefreshResult, []*ProjectSpec, error) {
+) (*refreshedInventory, error) {
 	base, err := canonicalWorkspaceBase(baseDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	discovered, err := DiscoverWorkspaceProjects(ctx, g, base)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	missing, err := missingListedProjects(ctx, g, base, spec)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	result := &WorkspaceRefreshResult{
@@ -263,13 +279,18 @@ func refreshInventory(
 		Missing:  missing,
 		Added:    []string{},
 	}
+	refreshed := &refreshedInventory{
+		result:     result,
+		discovered: discovered,
+	}
 
-	return result, discovered, nil
+	return refreshed, nil
 }
 
 // missingListedProjects checks each saved path directly, including roots the directory walk skips.
 func missingListedProjects(ctx context.Context, g LocalGit, base string, spec *WorkspaceSpec) ([]string, error) {
 	missing := make([]string, 0)
+	phase := logger.NewProgress("refresh", len(spec.Projects))
 
 	for _, project := range spec.Projects {
 		gone, err := listedProjectMissing(ctx, g, base, project.Path)
@@ -277,9 +298,14 @@ func missingListedProjects(ctx context.Context, g LocalGit, base string, spec *W
 			return nil, err
 		}
 
+		message := "present"
+
 		if gone {
 			missing = append(missing, project.Path)
+			message = "missing"
 		}
+
+		phase.Advance(ctx, project.Path, message)
 	}
 
 	return missing, nil

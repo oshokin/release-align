@@ -30,13 +30,13 @@ func newArchiveNames() *archiveNames {
 
 // add records one entry. skip is true when a shared directory is already present.
 func (n *archiveNames) add(raw string, mode os.FileMode) (bool, error) {
-	name, err := archiveEntryName(raw)
+	name, err := n.archiveEntryName(raw)
 	if err != nil {
 		return false, err
 	}
 
 	key := strings.TrimSuffix(name, "/")
-	kind := archiveEntryKind(name, mode)
+	kind := n.archiveEntryKind(name, mode)
 
 	if prev, ok := n.kinds[key]; ok {
 		if prev == archiveKindDir && kind == archiveKindDir {
@@ -88,13 +88,13 @@ func (n *archiveNames) parents(key, kind string) error {
 }
 
 // archiveEntryName rejects absolute paths, backslashes, and parent-directory segments.
-func archiveEntryName(raw string) (string, error) {
+func (n *archiveNames) archiveEntryName(raw string) (string, error) {
 	if raw == "" || strings.HasPrefix(raw, "/") || strings.Contains(raw, "\\") || strings.Contains(raw, "\x00") {
 		return "", errArchiveEntry
 	}
 
 	directory := strings.HasSuffix(raw, "/")
-	cleaned := pathCleanSlash(raw)
+	cleaned := n.pathCleanSlash(raw)
 
 	if cleaned == "." || cleaned == pathDotDot || strings.HasPrefix(cleaned, pathDotDot+"/") {
 		return "", errArchiveEntry
@@ -108,7 +108,7 @@ func archiveEntryName(raw string) (string, error) {
 }
 
 // pathCleanSlash cleans a ZIP path without turning it into a host path.
-func pathCleanSlash(raw string) string {
+func (n *archiveNames) pathCleanSlash(raw string) string {
 	parts := strings.Split(strings.TrimSuffix(raw, "/"), "/")
 	kept := make([]string, 0, len(parts))
 
@@ -128,7 +128,7 @@ func pathCleanSlash(raw string) string {
 }
 
 // archiveEntryKind classifies a ZIP mode.
-func archiveEntryKind(name string, mode os.FileMode) string {
+func (n *archiveNames) archiveEntryKind(name string, mode os.FileMode) string {
 	if strings.HasSuffix(name, "/") || mode.IsDir() {
 		return archiveKindDir
 	}

@@ -25,8 +25,32 @@ func TestHelpVersionAndInvalidFlags(t *testing.T) {
 
 	var out, err bytes.Buffer
 
-	if code := Execute([]string{"--jobs=0"}, &out, &err); code != exitUsage || !strings.Contains(err.String(), "jobs") {
+	if code := Execute([]string{"workspace", "sync", "--jobs=0"}, &out, &err); code != exitUsage ||
+		!strings.Contains(err.String(), "jobs") {
 		t.Fatal(code, err.String())
+	}
+}
+
+// TestRootPrintsHelpWithoutSyncing leaves the clones alone when no verb is given.
+func TestRootPrintsHelpWithoutSyncing(t *testing.T) {
+	var out, err bytes.Buffer
+
+	if code := Execute([]string{}, &out, &err); code != exitOK || !strings.Contains(out.String(), "workspace sync") {
+		t.Fatal(code, out.String(), err.String())
+	}
+
+	out.Reset()
+	err.Reset()
+
+	if code := Execute([]string{"--dry-run"}, &out, &err); code != exitUsage || out.Len() != 0 {
+		t.Fatal(code, out.String(), err.String())
+	}
+
+	out.Reset()
+	err.Reset()
+
+	if code := Execute([]string{"workspace"}, &out, &err); code != exitOK || !strings.Contains(out.String(), "sync") {
+		t.Fatal(code, out.String(), err.String())
 	}
 }
 
@@ -40,7 +64,8 @@ func TestCobraHelpVersionAndCompletionIgnoreInvalidEnvironment(t *testing.T) {
 		{"version"},
 		{"--version"},
 		{"completion", "bash"},
-		{"status", "--help"},
+		{"workspace", "sync", "--help"},
+		{"workspace", "status", "--help"},
 		{"workspace", "--help"},
 		{"workspace", "init", "--help"},
 		{"workspace", "refresh", "--help"},
@@ -63,7 +88,7 @@ func TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState(t *testing.T) {
 
 	var out, err bytes.Buffer
 
-	overridden := []string{"--jobs", "2", "--workspace", "missing.json", "--output", "json"}
+	overridden := []string{"workspace", "sync", "--jobs", "2", "--workspace", "missing.json", "--output", "json"}
 	if code := Execute(overridden, &out, &err); code != exitUsage || !strings.Contains(out.String(), "missing.json") {
 		t.Fatalf("%d %s %s", code, out.String(), err.String())
 	}
@@ -71,7 +96,7 @@ func TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState(t *testing.T) {
 	out.Reset()
 	err.Reset()
 
-	fromEnv := []string{"--workspace", "missing.json", "--output", "json"}
+	fromEnv := []string{"workspace", "sync", "--workspace", "missing.json", "--output", "json"}
 	if code := Execute(fromEnv, &out, &err); code != exitUsage || !strings.Contains(out.String(), "JOBS") {
 		t.Fatalf("%d %s %s", code, out.String(), err.String())
 	}
@@ -80,13 +105,13 @@ func TestCobraFlagsOverrideEnvironmentAndCommandsDoNotShareState(t *testing.T) {
 // TestWorkspaceUsageAndJSONEnvelope verifies usage errors and the single JSON error envelope.
 func TestWorkspaceUsageAndJSONEnvelope(t *testing.T) {
 	rejected := [][]string{
-		{"--group", "search"},
-		{"--repo", "search/quillbox"},
-		{"--workspace", "missing.json", "--versions-file", "versions.json"},
-		{"--workspace", "missing.json", "--depth", "3"},
-		{"--workspace", "missing.json", "--local", "keep"},
-		{"status"},
-		{"status", "--dry-run", "--workspace", "missing.json"},
+		{"workspace", "sync", "--group", "search"},
+		{"workspace", "sync", "--repo", "search/quillbox"},
+		{"workspace", "sync", "--workspace", "missing.json", "--versions-file", "versions.json"},
+		{"workspace", "sync", "--workspace", "missing.json", "--depth", "3"},
+		{"workspace", "sync", "--workspace", "missing.json", "--local", "keep"},
+		{"workspace", "status"},
+		{"workspace", "status", "--dry-run", "--workspace", "missing.json"},
 	}
 
 	for _, args := range rejected {
@@ -99,7 +124,8 @@ func TestWorkspaceUsageAndJSONEnvelope(t *testing.T) {
 
 	var out, err bytes.Buffer
 
-	if code := Execute([]string{"--output", "json"}, &out, &err); code != exitUsage || !json.Valid(out.Bytes()) {
+	if code := Execute([]string{"workspace", "sync", "--output", "json"}, &out, &err); code != exitUsage ||
+		!json.Valid(out.Bytes()) {
 		t.Fatalf("%d %s %s", code, out.String(), err.String())
 	}
 
@@ -113,7 +139,7 @@ func TestHelpMentionsExactWorkspaceTargets(t *testing.T) {
 	var out, err bytes.Buffer
 
 	if code := Execute(
-		[]string{"--help"},
+		[]string{"workspace", "sync", "--help"},
 		&out,
 		&err,
 	); code != exitOK ||
@@ -125,7 +151,7 @@ func TestHelpMentionsExactWorkspaceTargets(t *testing.T) {
 	err.Reset()
 
 	if code := Execute(
-		[]string{"status", "--help"},
+		[]string{"workspace", "status", "--help"},
 		&out,
 		&err,
 	); code != exitOK ||
@@ -138,9 +164,11 @@ func TestHelpMentionsExactWorkspaceTargets(t *testing.T) {
 func TestCobraRejectsInvalidArguments(t *testing.T) {
 	commands := [][]string{
 		{"--unknown"},
-		{"--jobs", "oops"},
-		{"--attempts", "0"},
+		{"workspace", "sync", "--jobs", "oops"},
+		{"workspace", "sync", "--attempts", "0"},
 		{"unexpected"},
+		{"status"},
+		{"--dry-run"},
 		{"version", "unexpected"},
 	}
 

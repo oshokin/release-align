@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 )
 
 // ResolvedRevision is the exact object a project must match.
@@ -80,6 +81,14 @@ type WorkspaceReport struct {
 	Rows []*WorkspaceRow `json:"repositories"`
 	// RemoteInventory is the GitLab comparison for this invocation.
 	RemoteInventory *RemoteInventory `json:"remote_inventory,omitempty"`
+	// Started is when this run began. It is not part of the JSON report.
+	Started time.Time `json:"-"`
+	// ProgressStarted is when the latest phase began.
+	ProgressStarted time.Time `json:"-"`
+	// ProgressDone is how many units of the latest phase have finished.
+	ProgressDone int `json:"-"`
+	// ProgressTotal is the size of the latest phase.
+	ProgressTotal int `json:"-"`
 }
 
 // RemoteInventory is the GitLab catalog comparison for one invocation.

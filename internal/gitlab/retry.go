@@ -44,7 +44,7 @@ func (c *Client) withRetry(ctx context.Context, op func(context.Context) error) 
 	cfg := &retry.EngineConfig{
 		MaxRetries:  uint64(attempts - 1),
 		DelayPolicy: wait,
-		IsRetryable: retryableGitLab,
+		IsRetryable: c.retryableGitLab,
 	}
 	wrapped := func(ctx context.Context) error {
 		wait.server = 0
@@ -61,7 +61,7 @@ func (c *Client) withRetry(ctx context.Context, op func(context.Context) error) 
 }
 
 // retryableGitLab allows another try for a timeout, a dropped connection, 429, or 5xx.
-func retryableGitLab(err error) bool {
+func (c *Client) retryableGitLab(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, errGitLabRedirect) {
 		return false
 	}
@@ -70,7 +70,7 @@ func retryableGitLab(err error) bool {
 		return false
 	}
 
-	if tlsTrustFailure(err) {
+	if c.tlsTrustFailure(err) {
 		return false
 	}
 
@@ -100,7 +100,7 @@ func retryableGitLab(err error) bool {
 }
 
 // tlsTrustFailure reports a certificate the process will not retry.
-func tlsTrustFailure(err error) bool {
+func (c *Client) tlsTrustFailure(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -119,7 +119,7 @@ func tlsTrustFailure(err error) bool {
 }
 
 // sortProjects orders a finished catalog by namespace path.
-func sortProjects(projects []*Project) {
+func (c *Client) sortProjects(projects []*Project) {
 	slices.SortFunc(projects, func(left, right *Project) int {
 		if left == nil || right == nil {
 			return 0

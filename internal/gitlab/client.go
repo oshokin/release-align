@@ -95,7 +95,7 @@ func (c *Client) ListProjects(ctx context.Context, groups []string) ([]*Project,
 			return nil, err
 		}
 
-		merged, err := mergeProjects(seen, projects)
+		merged, err := c.mergeProjects(seen, projects)
 		if err != nil {
 			return nil, err
 		}
@@ -103,13 +103,13 @@ func (c *Client) ListProjects(ctx context.Context, groups []string) ([]*Project,
 		all = append(all, merged...)
 	}
 
-	sortProjects(all)
+	c.sortProjects(all)
 
 	return all, nil
 }
 
 // mergeProjects keeps the first path for an id and rejects a contradiction.
-func mergeProjects(seen map[int]*Project, projects []*Project) ([]*Project, error) {
+func (c *Client) mergeProjects(seen map[int]*Project, projects []*Project) ([]*Project, error) {
 	added := make([]*Project, 0)
 
 	for _, project := range projects {

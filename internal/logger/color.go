@@ -20,6 +20,15 @@ const (
 	fieldRepo = "repo"
 	// ansiReset returns the terminal to its default color.
 	ansiReset = "\033[0m"
+	// ansiTime is #C5CDD8, a cool gray for the clock. Contrast is about 13:1 on black
+	// and about 11:1 on Ubuntu aubergine #300A24.
+	ansiTime = "\033[38;2;197;205;216m"
+	// ansiElapsed is #7FD1C7, a muted teal for time already spent.
+	ansiElapsed = "\033[38;2;127;209;199m"
+	// ansiLeft is #E6C88A, a muted gold for the estimated remainder.
+	ansiLeft = "\033[38;2;230;200;138m"
+	// ansiPercent is #C9B8F0, a muted lilac for the completion share.
+	ansiPercent = "\033[38;2;201;184;240m"
 	// levelWidth pads short level names so the following columns line up.
 	levelWidth = 5
 )
@@ -74,6 +83,20 @@ func (c *textCore) levelStyle(level string) string {
 		return "\033[1;33m"
 	case "error", "dpanic", "panic", "fatal":
 		return "\033[1;31m"
+	default:
+		return ""
+	}
+}
+
+// valueStyle paints pace numbers. Other fields stay in the default terminal color.
+func (c *textCore) valueStyle(key string) string {
+	switch key {
+	case "elapsed":
+		return ansiElapsed
+	case "left":
+		return ansiLeft
+	case "percent":
+		return ansiPercent
 	default:
 		return ""
 	}

@@ -30,8 +30,8 @@ const (
 // errWorkspaceInitFlags means a required init flag was omitted or cleared.
 var errWorkspaceInitFlags = errors.New("workspace init requires --base-dir")
 
-// newWorkspaceCommand groups inventory management without inheriting synchronization flags.
-func newWorkspaceCommand() *cobra.Command {
+// newWorkspaceCommand groups every workspace verb. Sync flags stay on sync and status.
+func newWorkspaceCommand(cfg *app.Config) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "workspace",
 		Short: "Manage local workspace inventories",
@@ -85,6 +85,8 @@ func newWorkspaceCommand() *cobra.Command {
 		nil,
 		"GitLab group path to save; repeatable; no API call",
 	)
+	command.AddCommand(newSyncCommand(cfg))
+	command.AddCommand(newStatusCommand(cfg))
 	command.AddCommand(initCommand)
 	command.AddCommand(newWorkspaceRefreshCommand())
 	command.AddCommand(newWorkspaceCloneCommand())
@@ -105,7 +107,9 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		NoLazyFetch:  true,
 	}
 
-	spec, err := app.ScanWorkspace(command.Context(), client, c.options)
+	ctx := withCommandLog(command, false, defaults.LogLevel)
+
+	spec, err := app.ScanWorkspace(ctx, client, c.options)
 	if err != nil {
 		return &commandError{
 			code:  exitFailed,

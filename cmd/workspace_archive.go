@@ -107,7 +107,9 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 	c.options.SetTimeoutLocks(timeoutLocks(command))
 	c.options.SetProgress(command.ErrOrStderr())
 
-	report, err := app.ArchiveWorkspace(command.Context(), c.options)
+	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, cfg.LogLevel)
+
+	report, err := app.ArchiveWorkspace(ctx, c.options)
 	if command.Context().Err() != nil {
 		return err
 	}

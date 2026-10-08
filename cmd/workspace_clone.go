@@ -47,7 +47,7 @@ func newWorkspaceCloneCommand() *cobra.Command {
 			"--workspace defaults to release-align.yml. An omitted --base-dir uses release-align.base-dir from that file.\n" +
 			"--all uses the gitlab.groups saved in the workspace, including subgroups, not every project on the server.\n" +
 			"An existing matching checkout is reused. Occupied paths are not replaced.\n" +
-			"Clones stay on the remote default branch; run release-align to align the release.\n\n" +
+			"Clones stay on the remote default branch; run release-align workspace sync to align the release.\n\n" +
 			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$RELEASE_ALIGN_BASE_DIR\" --repo lamiona/search/new-indexer\n" +
 			"  release-align workspace clone --workspace ./release-align.yml --base-dir \"$RELEASE_ALIGN_BASE_DIR\" --all",
 		Args:          cobra.NoArgs,
@@ -126,7 +126,9 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 
 	c.options.SetTimeoutLocks(timeoutLocks(command))
 	c.options.SetProgress(command.ErrOrStderr())
-	report, err := app.CloneWorkspace(command.Context(), c.options)
+
+	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, cfg.LogLevel)
+	report, err := app.CloneWorkspace(ctx, c.options)
 
 	if err != nil && report != nil && report.Error == "" {
 		report.Error = err.Error()

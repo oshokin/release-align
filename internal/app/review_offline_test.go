@@ -10,9 +10,21 @@ import (
 	"testing"
 )
 
+// partialCloneRun is one promisor clone and the script log of upload-pack calls.
+type partialCloneRun struct {
+	// fixture is the local repository and its remote.
+	fixture *fixture
+	// oid is the release commit that a lazy fetch would have to download.
+	oid string
+	// calls is the file that records git-upload-pack invocations.
+	calls string
+}
+
 // TestReviewStatusDoesNotLazyFetch verifies that partial-clone object lookup stays offline.
 func TestReviewStatusDoesNotLazyFetch(t *testing.T) {
-	f, _, calls := partialClone(t)
+	run := partialClone(t)
+	f := run.fixture
+	calls := run.calls
 	revision := &RevisionSpec{
 		Commit: git(t, f.seed, "rev-parse", "HEAD"),
 	}
@@ -27,7 +39,10 @@ func TestReviewStatusDoesNotLazyFetch(t *testing.T) {
 
 // TestReviewDryRunDoesNotLazyFetch keeps a dry-run from fetching or changing local Git state.
 func TestReviewDryRunDoesNotLazyFetch(t *testing.T) {
-	f, oid, calls := partialClone(t)
+	run := partialClone(t)
+	f := run.fixture
+	oid := run.oid
+	calls := run.calls
 	f.cfg.DryRun = true
 	before := localGitSnapshot(t, f.repo)
 	revisionSpec := &RevisionSpec{
@@ -48,7 +63,10 @@ func TestReviewDryRunDoesNotLazyFetch(t *testing.T) {
 
 // TestReviewSyncStillFetchesPromisor checks that a normal sync may still contact origin.
 func TestReviewSyncStillFetchesPromisor(t *testing.T) {
-	f, oid, calls := partialClone(t)
+	run := partialClone(t)
+	f := run.fixture
+	oid := run.oid
+	calls := run.calls
 	revisionSpec := &RevisionSpec{
 		Commit: oid,
 	}
@@ -104,7 +122,7 @@ func TestSyncDoesNotProbeNoLazyFetch(t *testing.T) {
 }
 
 // partialClone is a local clone whose missing release commit would require a promisor fetch.
-func partialClone(t *testing.T) (*fixture, string, string) {
+func partialClone(t *testing.T) *partialCloneRun {
 	t.Helper()
 
 	f := setup(t)
@@ -116,7 +134,13 @@ func partialClone(t *testing.T) (*fixture, string, string) {
 	body := fmt.Sprintf("echo call >> '%s'\nexec git-upload-pack '%s'\n", calls, f.remote)
 	sshScript(t, body)
 
-	return f, oid, calls
+	run := &partialCloneRun{
+		fixture: f,
+		oid:     oid,
+		calls:   calls,
+	}
+
+	return run
 }
 
 // localGitSnapshot records HEAD, the index, and FETCH_HEAD so an offline command can be compared.

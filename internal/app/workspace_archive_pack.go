@@ -10,7 +10,24 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
+
+// repoZipSource is one repository ZIP being copied into the shared archive.
+type repoZipSource struct {
+	// writer receives the copied entries.
+	writer *zip.Writer
+	// names rejects paths that collide inside the shared archive.
+	names *archiveNames
+	// project is the workspace path used in errors.
+	project string
+	// path is the temporary ZIP on disk.
+	path string
+	// file is one entry inside that ZIP.
+	file *zip.File
+}
 
 // write builds the ZIP in a temporary file and publishes it with a hard link.
 func (j *archiveJob) write(planned []*plannedRepo) error {
@@ -65,8 +82,11 @@ func (j *archiveJob) write(planned []*plannedRepo) error {
 func (j *archiveJob) fill(temp *os.File, planned []*plannedRepo) error {
 	writer := zip.NewWriter(temp)
 	names := newArchiveNames()
+	phase := logger.NewProgress("archive", len(planned))
 
 	for _, repo := range planned {
+		phase.Advance(j.ctx, repo.Path, repo.Commit)
+
 		if err := j.packRepo(writer, names, repo); err != nil {
 			_ = writer.Close()
 
@@ -74,7 +94,7 @@ func (j *archiveJob) fill(temp *os.File, planned []*plannedRepo) error {
 		}
 	}
 
-	if err := writeArchiveManifest(writer, names, j.manifest(planned)); err != nil {
+	if err := j.writeArchiveManifest(writer, names, j.manifest(planned)); err != nil {
 		_ = writer.Close()
 
 		return err
@@ -97,14 +117,12 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 		return err
 	}
 
-	j.progressf("%s %s\n", repo.Path, repo.Commit)
-
 	deadline := time.Now().Add(j.opts.ArchiveTimeout)
 
 	repoCtx, cancel := context.WithDeadline(j.ctx, deadline)
 	defer cancel()
 
-	tempName, err := repoZipPath(filepath.Dir(j.destination))
+	tempName, err := j.repoZipPath(filepath.Dir(j.destination))
 	if err != nil {
 		return archivePhase(repo.Path, "archive", err)
 	}
@@ -118,16 +136,31 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 		return archivePhase(repo.Path, "archive", context.DeadlineExceeded)
 	}
 
-	err = j.git.Archive(repoCtx, repo.Dir, repo.Path+"/", tempName, repo.Commit, remain)
+	request := &gitter.ArchiveRequest{
+		Dir:     repo.Dir,
+		Prefix:  repo.Path + "/",
+		Output:  tempName,
+		OID:     repo.Commit,
+		Timeout: remain,
+	}
+
+	err = j.git.Archive(repoCtx, request)
 	if err != nil {
 		return archivePhase(repo.Path, "archive", err)
 	}
 
-	return copyRepoZip(repoCtx, writer, names, repo.Path, tempName)
+	source := &repoZipSource{
+		writer:  writer,
+		names:   names,
+		project: repo.Path,
+		path:    tempName,
+	}
+
+	return copyRepoZip(repoCtx, source)
 }
 
 // repoZipPath reserves an empty file in dir. git archive overwrites that absolute path.
-func repoZipPath(dir string) (string, error) {
+func (j *archiveJob) repoZipPath(dir string) (string, error) {
 	temp, err := os.CreateTemp(dir, ".release-align-repo-*.zip")
 	if err != nil {
 		return "", err
@@ -144,10 +177,10 @@ func repoZipPath(dir string) (string, error) {
 }
 
 // copyRepoZip copies one repository archive into the shared writer.
-func copyRepoZip(ctx context.Context, writer *zip.Writer, names *archiveNames, project, path string) error {
-	reader, err := zip.OpenReader(path)
+func copyRepoZip(ctx context.Context, source *repoZipSource) error {
+	reader, err := zip.OpenReader(source.path)
 	if err != nil {
-		return archivePhase(project, "copy", err)
+		return archivePhase(source.project, "copy", err)
 	}
 
 	defer reader.Close()
@@ -157,47 +190,47 @@ func copyRepoZip(ctx context.Context, writer *zip.Writer, names *archiveNames, p
 			return err
 		}
 
-		if err = copyRepoEntry(ctx, writer, names, project, file); err != nil {
-			return archivePhase(project, "copy", err)
+		entry := &repoZipSource{
+			writer:  source.writer,
+			names:   source.names,
+			project: source.project,
+			file:    file,
+		}
+		if err = copyRepoEntry(ctx, entry); err != nil {
+			return archivePhase(source.project, "copy", err)
 		}
 	}
 
 	if err = archiveCanceled(ctx); err != nil {
-		return archivePhase(project, "copy", err)
+		return archivePhase(source.project, "copy", err)
 	}
 
 	return nil
 }
 
 // copyRepoEntry validates one path and copies its stored bytes in bounded chunks.
-func copyRepoEntry(
-	ctx context.Context,
-	writer *zip.Writer,
-	names *archiveNames,
-	project string,
-	file *zip.File,
-) error {
+func copyRepoEntry(ctx context.Context, source *repoZipSource) error {
 	if err := archiveCanceled(ctx); err != nil {
 		return err
 	}
 
-	if !allowedRepoEntry(file.Name, project) {
+	if !allowedRepoEntry(source.file.Name, source.project) {
 		return errArchiveEntry
 	}
 
-	skip, err := names.add(file.Name, file.Mode())
+	skip, err := source.names.add(source.file.Name, source.file.Mode())
 	if err != nil || skip {
 		return err
 	}
 
-	raw, err := file.OpenRaw()
+	raw, err := source.file.OpenRaw()
 	if err != nil {
 		return err
 	}
 
-	header := file.FileHeader
+	header := source.file.FileHeader
 
-	dst, err := writer.CreateRaw(&header)
+	dst, err := source.writer.CreateRaw(&header)
 	if err != nil {
 		return err
 	}
@@ -240,12 +273,13 @@ func (j *archiveJob) manifest(planned []*plannedRepo) *archiveManifest {
 	repos := make([]*archiveManifestRepo, 0, len(planned))
 
 	for _, repo := range planned {
-		repos = append(repos, &archiveManifestRepo{
+		entry := &archiveManifestRepo{
 			Path:      repo.Path,
 			Requested: repo.Requested,
 			Commit:    repo.Commit,
 			Gitlinks:  repo.Gitlinks,
-		})
+		}
+		repos = append(repos, entry)
 	}
 
 	return &archiveManifest{
@@ -256,7 +290,7 @@ func (j *archiveJob) manifest(planned []*plannedRepo) *archiveManifest {
 }
 
 // writeArchiveManifest adds _release-align/manifest.json.
-func writeArchiveManifest(writer *zip.Writer, names *archiveNames, manifest *archiveManifest) error {
+func (j *archiveJob) writeArchiveManifest(writer *zip.Writer, names *archiveNames, manifest *archiveManifest) error {
 	name := archiveManifestDir + "/manifest.json"
 
 	if _, err := names.add(name, 0o600); err != nil {
@@ -286,15 +320,6 @@ func writeArchiveManifest(writer *zip.Writer, names *archiveNames, manifest *arc
 	}
 
 	return nil
-}
-
-// progressf writes one status line to stderr when a writer was provided.
-func (j *archiveJob) progressf(format string, args ...any) {
-	if j.opts.Progress == nil {
-		return
-	}
-
-	_, _ = fmt.Fprintf(j.opts.Progress, format, args...)
 }
 
 // noteTemp removes the temporary ZIP after a successful publish.

@@ -108,7 +108,9 @@ func (c *workspaceRefreshCommand) run(command *cobra.Command, _ []string) error 
 		AddAll:  c.addAll,
 	}
 
-	result, err := app.RefreshWorkspace(command.Context(), client, c.file, options)
+	ctx := withCommandLog(command, false, defaults.LogLevel)
+
+	result, err := app.RefreshWorkspace(ctx, client, c.file, options)
 	if err != nil {
 		return c.refreshCommandError(err)
 	}
@@ -173,7 +175,10 @@ func (c *workspaceRefreshCommand) writeRefreshReport(out io.Writer, result *app.
 		}
 	}
 
-	_, err := fmt.Fprintln(out, "Readiness was not checked. Run release-align status for the selected workspace.")
+	_, err := fmt.Fprintln(
+		out,
+		"Readiness was not checked. Run release-align workspace status for the selected workspace.",
+	)
 
 	return err
 }

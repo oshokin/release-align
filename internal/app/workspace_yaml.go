@@ -20,6 +20,28 @@ type decodedWorkspace struct {
 	root *yaml.Node
 }
 
+// namedRemote is one west remote name and its url-base.
+type namedRemote struct {
+	// name is the remote key.
+	name string
+	// base is the url-base joined in front of a project.
+	base string
+}
+
+// projectNames is the west name and the workspace path of one project.
+type projectNames struct {
+	// name is the project name.
+	name string
+	// path is the checkout path. It matches name when the file omits path.
+	path string
+}
+
+// cloneDepthValue is a present west clone-depth.
+type cloneDepthValue struct {
+	// depth is the recorded hint.
+	depth *int
+}
+
 const (
 	// keyManifest is the west manifest block.
 	keyManifest = "manifest"
@@ -342,52 +364,57 @@ func decodeRemotes(manifest *yaml.Node) (map[string]string, error) {
 	}
 
 	for _, remote := range node.Content {
-		name, base, err := oneRemote(remote)
+		parsed, err := oneRemote(remote)
 		if err != nil {
 			return nil, err
 		}
 
-		if bases[name] != "" {
-			return nil, fmt.Errorf("%w: remote %s", errWorkspaceField, name)
+		if bases[parsed.name] != "" {
+			return nil, fmt.Errorf("%w: remote %s", errWorkspaceField, parsed.name)
 		}
 
-		bases[name] = base
+		bases[parsed.name] = parsed.base
 	}
 
 	return bases, nil
 }
 
 // oneRemote reads one remotes entry.
-func oneRemote(node *yaml.Node) (string, string, error) {
+func oneRemote(node *yaml.Node) (*namedRemote, error) {
 	if node == nil || node.Kind != yaml.MappingNode {
-		return "", "", errWorkspaceField
+		return nil, errWorkspaceField
 	}
 
 	if err := unknownKeys(node, "remotes", []string{keyName, "url-base"}); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	nameNode, ok := mappingValue(node, keyName)
 	if !ok {
-		return "", "", errWorkspaceField
+		return nil, errWorkspaceField
 	}
 
 	name, err := scalarString(nameNode)
 	if err != nil || name == "" {
-		return "", "", errWorkspaceField
+		return nil, errWorkspaceField
 	}
 
 	baseNode, ok := mappingValue(node, "url-base")
 	if !ok {
-		return "", "", errWorkspaceField
+		return nil, errWorkspaceField
 	}
 
 	base, err := scalarString(baseNode)
 	if err != nil || base == "" {
-		return "", "", errWorkspaceField
+		return nil, errWorkspaceField
 	}
 
-	return name, base, nil
+	parsed := &namedRemote{
+		name: name,
+		base: base,
+	}
+
+	return parsed, nil
 }
 
 // decodeDefaults reads the inherited remote and revision.
@@ -432,13 +459,15 @@ func decodeDefaultRevision(spec *WorkspaceSpec, defaults *yaml.Node) error {
 		return nil
 	}
 
-	revision, short, err := parseRevision(node)
+	parsed, err := parseRevision(node)
 	if err != nil {
 		return err
 	}
 
-	spec.DefaultRevision = revision
-	spec.shortDefault = short
+	if parsed != nil {
+		spec.DefaultRevision = parsed.revision
+		spec.shortDefault = parsed.short
+	}
 
 	return nil
 }
@@ -479,10 +508,13 @@ func decodeProject(node *yaml.Node, bases map[string]string, defaultRemote strin
 		return nil, err
 	}
 
-	name, path, err := projectIdentity(node)
+	identity, err := projectIdentity(node)
 	if err != nil {
 		return nil, err
 	}
+
+	name := identity.name
+	path := identity.path
 
 	cloneURL, err := projectCloneURL(node, name, bases, defaultRemote)
 	if err != nil {
@@ -494,14 +526,29 @@ func decodeProject(node *yaml.Node, bases map[string]string, defaultRemote strin
 		return nil, err
 	}
 
-	revision, short, err := optionalRevision(node)
+	parsed, err := optionalRevision(node)
 	if err != nil {
 		return nil, err
 	}
 
-	depth, hasDepth, err := decodeCloneDepth(node)
+	var revision *RevisionSpec
+
+	var short string
+
+	if parsed != nil {
+		revision = parsed.revision
+		short = parsed.short
+	}
+
+	depth, err := decodeCloneDepth(node)
 	if err != nil {
 		return nil, err
+	}
+
+	var cloneDepth *int
+
+	if depth != nil {
+		cloneDepth = depth.depth
 	}
 
 	project := &ProjectSpec{
@@ -511,7 +558,7 @@ func decodeProject(node *yaml.Node, bases map[string]string, defaultRemote strin
 		Groups:        groups,
 		Revision:      revision,
 		shortRevision: short,
-		CloneDepth:    depthPointer(depth, hasDepth),
+		CloneDepth:    cloneDepth,
 	}
 
 	return project, nil
@@ -536,27 +583,32 @@ func rejectProjectKeys(node *yaml.Node) error {
 }
 
 // projectIdentity reads name and path. A missing path uses the name.
-func projectIdentity(node *yaml.Node) (string, string, error) {
+func projectIdentity(node *yaml.Node) (*projectNames, error) {
 	nameNode, ok := mappingValue(node, keyName)
 	if !ok {
-		return "", "", errWorkspaceName
+		return nil, errWorkspaceName
 	}
 
 	name, err := scalarString(nameNode)
 	if err != nil || name == "" || strings.ContainsAny(name, `/\`) || name == reservedProjectName {
-		return "", "", errWorkspaceName
+		return nil, errWorkspaceName
 	}
 
 	path, err := optionalString(node, keyPath)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	if path == "" {
 		path = name
 	}
 
-	return name, path, nil
+	identity := &projectNames{
+		name: name,
+		path: path,
+	}
+
+	return identity, nil
 }
 
 // projectCloneURL follows west: explicit url, otherwise url-base plus repo-path or name.
@@ -609,33 +661,26 @@ func projectCloneURL(node *yaml.Node, name string, bases map[string]string, defa
 }
 
 // decodeCloneDepth reads a positive integer hint. The boolean reports that the key was present.
-func decodeCloneDepth(node *yaml.Node) (int, bool, error) {
+func decodeCloneDepth(node *yaml.Node) (*cloneDepthValue, error) {
 	raw, ok := mappingValue(node, "clone-depth")
 	if !ok {
-		return 0, false, nil
+		return &cloneDepthValue{}, nil
 	}
 
 	if raw.ShortTag() != yamlTagInt {
-		return 0, false, fmt.Errorf("%w: clone-depth line %d", errWorkspaceField, raw.Line)
+		return nil, fmt.Errorf("%w: clone-depth line %d", errWorkspaceField, raw.Line)
 	}
 
 	depth, err := strconv.Atoi(raw.Value)
 	if err != nil || depth <= 0 {
-		return 0, false, fmt.Errorf("%w: clone-depth line %d", errWorkspaceField, raw.Line)
+		return nil, fmt.Errorf("%w: clone-depth line %d", errWorkspaceField, raw.Line)
 	}
 
-	return depth, true, nil
-}
-
-// depthPointer stores a present clone-depth.
-func depthPointer(depth int, present bool) *int {
-	if !present {
-		return nil
+	parsed := &cloneDepthValue{
+		depth: &depth,
 	}
 
-	value := depth
-
-	return &value
+	return parsed, nil
 }
 
 // decodeGroupFilter reads the ordered enable and disable list.

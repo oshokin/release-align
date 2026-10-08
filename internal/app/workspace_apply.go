@@ -7,6 +7,8 @@ import (
 
 // applyWorkspace checks out each planned repository, stopping after the first failure.
 func (r *runner) applyWorkspace(ctx context.Context, items []*workspaceItem) error {
+	r.beginPhase("apply", r.plannedCount(items))
+
 	for index, item := range items {
 		if ctx.Err() != nil {
 			markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
@@ -19,6 +21,8 @@ func (r *runner) applyWorkspace(ctx context.Context, items []*workspaceItem) err
 		}
 
 		err := r.applyItem(ctx, item)
+		r.step(ctx, item.spec.Path, r.rowLogMessage(item.row))
+
 		if err == nil {
 			continue
 		}

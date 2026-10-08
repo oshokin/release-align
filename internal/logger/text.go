@@ -16,7 +16,7 @@ type textCore struct {
 	level zapcore.LevelEnabler
 	// out receives the finished line.
 	out zapcore.WriteSyncer
-	// color paints the level word and the repository name.
+	// color paints the clock, the level word, the repository name, and pace values.
 	color bool
 	// fields are the context values inherited from With.
 	fields []zapcore.Field
@@ -87,7 +87,7 @@ func (c *textCore) formatLine(when time.Time, level zapcore.Level, message strin
 
 	var b bytes.Buffer
 
-	b.WriteString(when.Format(timeLayout))
+	c.writeTint(&b, when.Format(timeLayout), ansiTime)
 	b.WriteString("  ")
 	c.writeTint(&b, c.padLevel(level), c.levelStyle(level.String()))
 	b.WriteString("  ")
@@ -127,13 +127,13 @@ func (c *textCore) splitRepo(fields []zapcore.Field) (string, []zapcore.Field) {
 	return repo, rest
 }
 
-// writeFields appends leftover context as key=value pairs.
+// writeFields appends leftover context as comma-separated key=value pairs.
 func (c *textCore) writeFields(b *bytes.Buffer, fields []zapcore.Field) {
 	for _, field := range fields {
-		b.WriteString("  ")
+		b.WriteString(", ")
 		b.WriteString(field.Key)
 		b.WriteByte('=')
-		b.WriteString(c.fieldText(field))
+		c.writeTint(b, c.fieldText(field), c.valueStyle(field.Key))
 	}
 }
 

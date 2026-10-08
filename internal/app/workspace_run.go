@@ -4,10 +4,22 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"time"
 
 	"github.com/oshokin/release-align/internal/gitter"
-	"github.com/oshokin/release-align/internal/logger"
 )
+
+// workspaceItemsRun is one sync or status pass over the selected projects.
+type workspaceItemsRun struct {
+	// cfg is the invocation settings.
+	cfg *Config
+	// items are the selected projects.
+	items []*workspaceItem
+	// mode is sync or status.
+	mode string
+	// report receives the phase clock.
+	report *WorkspaceReport
+}
 
 // RunWorkspace prepares or inspects the selected projects.
 // mode is sync or status. The returned report is non-nil when spec is non-nil.
@@ -38,7 +50,14 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 		LocalTimeout: cfg.LocalTimeout,
 		NoLazyFetch:  true,
 	}
-	if err = ResolveWorkspaceRevisions(ctx, client, cfg.BaseDir, spec, selected); err != nil {
+	lookup := &revisionLookup{
+		git:      client,
+		base:     cfg.BaseDir,
+		spec:     spec,
+		projects: selected,
+	}
+
+	if err = ResolveWorkspaceRevisions(ctx, lookup); err != nil {
 		report.Errors = []string{err.Error()}
 
 		return report, err
@@ -46,8 +65,21 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 
 	items := newWorkspaceItems(spec, selected)
 	report.Rows = workspaceRows(items)
-	freshness, runErr := runWorkspaceItems(ctx, cfg, items, mode)
-	report, runErr = finishWorkspace(ctx, report, items, freshness, runErr)
+	report.Started = time.Now()
+	run := &workspaceItemsRun{
+		cfg:    cfg,
+		items:  items,
+		mode:   mode,
+		report: report,
+	}
+	freshness, runErr := runWorkspaceItems(ctx, run)
+	done := &workspaceFinish{
+		report:    report,
+		items:     items,
+		freshness: freshness,
+		runErr:    runErr,
+	}
+	report, runErr = finishWorkspace(ctx, done)
 
 	check := &remoteCheck{
 		cfg:    cfg,
@@ -74,37 +106,17 @@ func ExitCodeForWorkspace(err error) int {
 	}
 }
 
-// LogWorkspaceReport writes a human summary. Text mode also lists every repository.
+// LogWorkspaceReport writes a human summary. Text mode also lists repository results.
 func LogWorkspaceReport(ctx context.Context, report *WorkspaceReport, text bool) {
 	if report == nil {
 		return
 	}
 
 	if text {
-		for _, row := range report.Rows {
-			logger.Infof(
-				ctx,
-				"%s outcome=%s ready=%t reason=%s %s",
-				row.Path,
-				row.Outcome,
-				row.Ready,
-				row.ReasonCode,
-				row.Message,
-			)
-		}
+		logTextRows(ctx, report.Rows)
 	}
 
-	logger.Infof(
-		ctx,
-		"workspace ready=%t coverage=%t expected=%d inventory=%d scope=%s freshness=%s mode=%s",
-		report.Ready,
-		report.Coverage,
-		report.ExpectedCount,
-		report.InventoryCount,
-		report.Scope,
-		report.Freshness,
-		report.Mode,
-	)
+	logWorkspaceSummary(ctx, report)
 }
 
 // newWorkspaceReport builds the report shell before repositories are visited.
@@ -148,28 +160,25 @@ func workspaceRows(items []*workspaceItem) []*WorkspaceRow {
 }
 
 // runWorkspaceItems binds directories and either syncs or reads cached state.
-func runWorkspaceItems(
-	ctx context.Context,
-	cfg *Config,
-	items []*workspaceItem,
-	mode string,
-) (string, error) {
+func runWorkspaceItems(ctx context.Context, run *workspaceItemsRun) (string, error) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return freshnessCached, err
 	}
 
+	client := &gitter.Client{
+		LocalTimeout: run.cfg.LocalTimeout,
+		NoLazyFetch:  run.mode == ModeStatus || run.cfg.DryRun,
+	}
 	runner := &runner{
-		cfg: cfg,
-		git: &gitter.Client{
-			LocalTimeout: cfg.LocalTimeout,
-			NoLazyFetch:  mode == ModeStatus || cfg.DryRun,
-		},
-		beforeWorkspaceCheckout: cfg.beforeCheckout,
+		cfg:                     run.cfg,
+		git:                     client,
+		beforeWorkspaceCheckout: run.cfg.beforeCheckout,
+		report:                  run.report,
 	}
 
-	if cfg.afterCheckout != nil {
+	if run.cfg.afterCheckout != nil {
 		runner.afterWorkspaceCheckout = func(repo *repository) {
-			cfg.afterCheckout(repo.path)
+			run.cfg.afterCheckout(repo.path)
 		}
 	}
 
@@ -177,17 +186,17 @@ func runWorkspaceItems(
 		return freshnessCached, err
 	}
 
-	if err := runner.bindWorkspaceDirs(ctx, items); err != nil {
+	if err := runner.bindWorkspaceDirs(ctx, run.items); err != nil {
 		return freshnessCached, err
 	}
 
-	if mode != ModeStatus && !cfg.DryRun {
-		return runner.syncWorkspace(ctx, items)
+	if run.mode != ModeStatus && !run.cfg.DryRun {
+		return runner.syncWorkspace(ctx, run.items)
 	}
 
-	if err := runner.checkWorkspaceRefs(ctx, items); err != nil {
+	if err := runner.checkWorkspaceRefs(ctx, run.items); err != nil {
 		return freshnessCached, err
 	}
 
-	return freshnessCached, runner.readCached(ctx, items, cfg.DryRun && mode == ModeSync)
+	return freshnessCached, runner.readCached(ctx, run.items, run.cfg.DryRun && run.mode == ModeSync)
 }

@@ -6,15 +6,23 @@ import (
 	"strings"
 )
 
+// appendedProjects is an inventory after selected discoveries were copied in.
+type appendedProjects struct {
+	// spec is the independent inventory.
+	spec *WorkspaceSpec
+	// added are the paths copied in, in file order.
+	added []string
+}
+
 // errWorkspaceAppendCandidate means a discovered project cannot be appended.
 var errWorkspaceAppendCandidate = errors.New("invalid discovered workspace project")
 
 // AppendDiscoveredProjects preserves existing entries and appends selected discoveries.
 // The caller verifies local roots and selects candidates before calling this pure function.
 // No Git command or file write is performed; an empty added slice means no file write is needed.
-func AppendDiscoveredProjects(current *WorkspaceSpec, selected []*ProjectSpec) (*WorkspaceSpec, []string, error) {
+func AppendDiscoveredProjects(current *WorkspaceSpec, selected []*ProjectSpec) (*appendedProjects, error) {
 	if err := current.Validate(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	next := current.clone()
@@ -26,7 +34,7 @@ func AppendDiscoveredProjects(current *WorkspaceSpec, selected []*ProjectSpec) (
 
 	additions, err := discoveredAdditions(selected, known)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	slices.SortFunc(additions, func(left, right *ProjectSpec) int {
@@ -40,10 +48,15 @@ func AppendDiscoveredProjects(current *WorkspaceSpec, selected []*ProjectSpec) (
 	}
 
 	if err = next.Validate(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return next, added, nil
+	appended := &appendedProjects{
+		spec:  next,
+		added: added,
+	}
+
+	return appended, nil
 }
 
 // discoveredAdditions copies new projects in caller order. Existing paths are skipped.

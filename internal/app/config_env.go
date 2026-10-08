@@ -6,6 +6,22 @@ import (
 	"time"
 )
 
+// envIntValue is one integer taken from the environment.
+type envIntValue struct {
+	// value is the parsed number.
+	value int
+	// present reports that the variable was set.
+	present bool
+}
+
+// envDurationValue is one duration taken from the environment.
+type envDurationValue struct {
+	// value is the parsed duration.
+	value time.Duration
+	// present reports that the variable was set.
+	present bool
+}
+
 const (
 	// EnvPrefix marks release-align settings in the process environment.
 	// GITLAB_TOKEN stays unprefixed: it is a container credential, not a program setting.
@@ -46,40 +62,45 @@ func (c *Config) applyStringEnv(getenv func(string) string) {
 
 // applyIntEnv copies numeric limits. An empty variable leaves the flag value.
 func (c *Config) applyIntEnv(getenv func(string) string) error {
-	jobs, ok, err := c.envInt(getenv, "JOBS")
+	jobs, err := c.envInt(getenv, "JOBS")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.Jobs = jobs
+	if jobs.present {
+		c.Jobs = jobs.value
 	}
 
-	attempts, ok, err := c.envInt(getenv, "ATTEMPTS")
+	attempts, err := c.envInt(getenv, "ATTEMPTS")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.Attempts = attempts
+	if attempts.present {
+		c.Attempts = attempts.value
 	}
 
 	return nil
 }
 
 // envInt parses one integer variable. ok is false when the variable is empty.
-func (*Config) envInt(getenv func(string) string, key string) (int, bool, error) {
+func (*Config) envInt(getenv func(string) string, key string) (*envIntValue, error) {
+	parsed := &envIntValue{}
+
 	s := getenv(key)
 	if s == "" {
-		return 0, false, nil
+		return parsed, nil
 	}
 
 	n, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, false, fmt.Errorf("%s: %w", Env(key), err)
+		return nil, fmt.Errorf("%s: %w", Env(key), err)
 	}
 
-	return n, true, nil
+	parsed.value = n
+	parsed.present = true
+
+	return parsed, nil
 }
 
 // applyBoolEnv copies DRY_RUN when the variable is set.
@@ -103,74 +124,79 @@ func (c *Config) applyBoolEnv(getenv func(string) string) error {
 
 // applyDurationEnv copies timeouts. A value must include a Go unit.
 func (c *Config) applyDurationEnv(getenv func(string) string) error {
-	fetch, ok, err := c.envDuration(getenv, "FETCH_TIMEOUT")
+	fetch, err := c.envDuration(getenv, "FETCH_TIMEOUT")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.FetchTimeout = fetch
+	if fetch.present {
+		c.FetchTimeout = fetch.value
 	}
 
-	probe, ok, err := c.envDuration(getenv, "PROBE_TIMEOUT")
+	probe, err := c.envDuration(getenv, "PROBE_TIMEOUT")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.ProbeTimeout = probe
+	if probe.present {
+		c.ProbeTimeout = probe.value
 	}
 
-	local, ok, err := c.envDuration(getenv, "LOCAL_TIMEOUT")
+	local, err := c.envDuration(getenv, "LOCAL_TIMEOUT")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.LocalTimeout = local
+	if local.present {
+		c.LocalTimeout = local.value
 	}
 
-	delay, ok, err := c.envDuration(getenv, "RETRY_DELAY")
+	delay, err := c.envDuration(getenv, "RETRY_DELAY")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.RetryDelay = delay
+	if delay.present {
+		c.RetryDelay = delay.value
 	}
 
-	clone, ok, err := c.envDuration(getenv, "CLONE_TIMEOUT")
+	clone, err := c.envDuration(getenv, "CLONE_TIMEOUT")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.CloneTimeout = clone
+	if clone.present {
+		c.CloneTimeout = clone.value
 	}
 
-	archive, ok, err := c.envDuration(getenv, "ARCHIVE_TIMEOUT")
+	archive, err := c.envDuration(getenv, "ARCHIVE_TIMEOUT")
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		c.ArchiveTimeout = archive
+	if archive.present {
+		c.ArchiveTimeout = archive.value
 	}
 
 	return nil
 }
 
 // envDuration parses one duration variable. ok is false when the variable is empty.
-func (*Config) envDuration(getenv func(string) string, key string) (time.Duration, bool, error) {
+func (*Config) envDuration(getenv func(string) string, key string) (*envDurationValue, error) {
+	parsed := &envDurationValue{}
+
 	s := getenv(key)
 	if s == "" {
-		return 0, false, nil
+		return parsed, nil
 	}
 
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return 0, false, fmt.Errorf("%s: %w", Env(key), err)
+		return nil, fmt.Errorf("%s: %w", Env(key), err)
 	}
 
-	return d, true, nil
+	parsed.value = d
+	parsed.present = true
+
+	return parsed, nil
 }

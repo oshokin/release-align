@@ -33,6 +33,20 @@ type CommandError struct {
 	Err error
 }
 
+// ArchiveRequest is one git archive invocation.
+type ArchiveRequest struct {
+	// Dir is the repository.
+	Dir string
+	// Prefix is the path prefix inside the ZIP.
+	Prefix string
+	// Output is the ZIP path.
+	Output string
+	// OID is the revision to archive.
+	OID string
+	// Timeout limits the Git process.
+	Timeout time.Duration
+}
+
 // Run never invokes a shell. Timeout includes Git and its subprocess tree.
 func (c *Client) Run(ctx context.Context, dir string, timeout time.Duration, args ...string) (string, error) {
 	if timeout == 0 {
@@ -142,16 +156,16 @@ func (c *Client) Fetch(ctx context.Context, dir string, timeout time.Duration) e
 }
 
 // Archive writes one revision to a ZIP file. It does not fetch or check out that revision.
-func (c *Client) Archive(ctx context.Context, dir, prefix, output, oid string, timeout time.Duration) error {
+func (c *Client) Archive(ctx context.Context, req *ArchiveRequest) error {
 	_, err := c.Run(
 		ctx,
-		dir,
-		timeout,
+		req.Dir,
+		req.Timeout,
 		"archive",
 		"--format=zip",
-		"--prefix="+prefix,
-		"--output="+output,
-		oid,
+		"--prefix="+req.Prefix,
+		"--output="+req.Output,
+		req.OID,
 	)
 
 	return err

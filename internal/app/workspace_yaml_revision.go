@@ -10,17 +10,31 @@ import (
 	"github.com/oshokin/release-align/internal/gitter"
 )
 
+// parsedRevision is a typed pin or a short name still to be classified.
+type parsedRevision struct {
+	// revision is a branch, tag, or full commit. Nil when short is set.
+	revision *RevisionSpec
+	// short is an unclassified name. Empty when revision is set.
+	short string
+}
+
+// revisionLookup is the local Git data used to classify short west names.
+type revisionLookup struct {
+	// git reads cached refs and does not fetch.
+	git LocalGit
+	// base is the workspace root.
+	base string
+	// spec supplies the inherited short default.
+	spec *WorkspaceSpec
+	// projects are the selected repositories.
+	projects []*ProjectSpec
+}
+
 // ResolveWorkspaceRevisions classifies short west names from local branch and tag refs.
 // It does not fetch. Full refs and commits are left unchanged.
-func ResolveWorkspaceRevisions(
-	ctx context.Context,
-	g LocalGit,
-	base string,
-	spec *WorkspaceSpec,
-	projects []*ProjectSpec,
-) error {
-	for _, project := range projects {
-		if err := resolveProjectRevision(ctx, g, base, spec, project); err != nil {
+func ResolveWorkspaceRevisions(ctx context.Context, lookup *revisionLookup) error {
+	for _, project := range lookup.projects {
+		if err := resolveProjectRevision(ctx, lookup, project); err != nil {
 			return err
 		}
 	}
@@ -29,32 +43,26 @@ func ResolveWorkspaceRevisions(
 }
 
 // resolveProjectRevision looks up one project's short revision in that repository.
-func resolveProjectRevision(
-	ctx context.Context,
-	g LocalGit,
-	base string,
-	spec *WorkspaceSpec,
-	project *ProjectSpec,
-) error {
+func resolveProjectRevision(ctx context.Context, lookup *revisionLookup, project *ProjectSpec) error {
 	if project == nil || project.Revision != nil {
 		return nil
 	}
 
 	short := project.shortRevision
 	if short == "" {
-		short = spec.shortDefault
+		short = lookup.spec.shortDefault
 	}
 
 	if short == "" {
 		return nil
 	}
 
-	dir, err := ResolveProjectDirectory(base, project.Path)
+	dir, err := ResolveProjectDirectory(lookup.base, project.Path)
 	if err != nil {
 		return fmt.Errorf("%s: %w", project.Path, errWorkspaceRevisionShort)
 	}
 
-	revision, err := classifyShortRevision(ctx, g, dir, short)
+	revision, err := classifyShortRevision(ctx, lookup.git, dir, short)
 	if err != nil {
 		return fmt.Errorf("%s: %w", project.Path, err)
 	}
@@ -116,17 +124,19 @@ func refExists(ctx context.Context, g LocalGit, dir, ref string) (bool, error) {
 }
 
 // optionalRevision reads a project revision. Absence inherits the default.
-func optionalRevision(node *yaml.Node) (*RevisionSpec, string, error) {
+func optionalRevision(node *yaml.Node) (*parsedRevision, error) {
 	value, ok := mappingValue(node, keyRevision)
 	if !ok {
-		return nil, "", nil
+		empty := &parsedRevision{}
+
+		return empty, nil
 	}
 
 	return parseRevision(value)
 }
 
 // parseRevision classifies refs/heads, refs/tags, a full id, or a short name.
-func parseRevision(node *yaml.Node) (*RevisionSpec, string, error) {
+func parseRevision(node *yaml.Node) (*parsedRevision, error) {
 	if node == nil || node.Kind != yaml.ScalarNode ||
 		(node.ShortTag() != yamlTagString && !numericCommitNode(node)) {
 		line := 0
@@ -134,7 +144,7 @@ func parseRevision(node *yaml.Node) (*RevisionSpec, string, error) {
 			line = node.Line
 		}
 
-		return nil, "", fmt.Errorf("%w: line %d", errWorkspaceRevisionType, line)
+		return nil, fmt.Errorf("%w: line %d", errWorkspaceRevisionType, line)
 	}
 
 	value := node.Value
@@ -144,31 +154,38 @@ func parseRevision(node *yaml.Node) (*RevisionSpec, string, error) {
 			Branch: strings.TrimPrefix(value, refHeads),
 		}
 		if err := revision.Validate(); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 
-		return revision, "", nil
+		parsed := &parsedRevision{revision: revision}
+
+		return parsed, nil
 	case strings.HasPrefix(value, refTags):
 		revision := &RevisionSpec{
 			Tag: strings.TrimPrefix(value, refTags),
 		}
 		if err := revision.Validate(); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 
-		return revision, "", nil
+		parsed := &parsedRevision{revision: revision}
+
+		return parsed, nil
 	case workspaceOID.MatchString(value):
 		revision := &RevisionSpec{
 			Commit: value,
 		}
+		parsed := &parsedRevision{revision: revision}
 
-		return revision, "", nil
+		return parsed, nil
 	default:
 		if revisionExpression(value) {
-			return nil, "", fmt.Errorf("%w: line %d", errWorkspaceRevisionShort, node.Line)
+			return nil, fmt.Errorf("%w: line %d", errWorkspaceRevisionShort, node.Line)
 		}
 
-		return nil, value, nil
+		parsed := &parsedRevision{short: value}
+
+		return parsed, nil
 	}
 }
 

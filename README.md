@@ -28,9 +28,9 @@ go build -o release-align .
   --file ./release-align.yml
 
 # Plan from refs already on disk. No fetch and no writes. Lazy fetch suppression is best effort.
-./release-align --workspace ./release-align.yml --dry-run
+./release-align workspace sync --workspace ./release-align.yml --dry-run
 
-./release-align --workspace ./release-align.yml --jobs 4
+./release-align workspace sync --workspace ./release-align.yml --jobs 4
 
 ./release-align --help
 ./release-align version
@@ -38,16 +38,16 @@ go build -o release-align .
 
 ## Commands
 
-The program takes no positional arguments. `--workspace` is required for a sync or a status check. Flag priority is below the flag table. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. After the flags have been parsed, a bad value or a bad workspace document exits 2 before any repository is touched. A value the parser itself rejects (`--jobs bad`, an unknown flag) is Cobra's own message: stdout is empty and the status is 2. Help and version stay text. When `--output json` is selected, a usage or runtime error of that run is one JSON object on stdout and progress stays on stderr. JSON is not promised before the parser can tell which command is running.
+The program takes no positional arguments. With no command it prints help and does not fetch or switch. `workspace sync` and `workspace status` are the alignment commands. `--workspace` is required for a sync or a status check. Flag priority is below the flag table. `help`, `version`, `--version`, and `completion` still run when the environment is invalid, and they do not open repositories. After the flags have been parsed, a bad value or a bad workspace document exits 2 before any repository is touched. A value the parser itself rejects (`--jobs bad`, an unknown flag) is Cobra's own message: stdout is empty and the status is 2. Help and version stay text. When `--output json` is selected, a usage or runtime error of that run is one JSON object on stdout and progress stays on stderr. JSON is not promised before the parser can tell which command is running.
 
-### release-align
+### release-align workspace sync
 
 Prepares the clones named in the workspace file.
 
 ```bash
-release-align --base-dir ~/src --workspace ./release-align.yml --jobs 4 --log-level debug
-release-align --workspace ./release-align.yml -n -j 8 -l warn
-release-align --workspace ./release-align.yml --group search --repo storage/pebble-object-bin
+release-align workspace sync --base-dir ~/src --workspace ./release-align.yml --jobs 4 --log-level debug
+release-align workspace sync --workspace ./release-align.yml -n -j 8 -l warn
+release-align workspace sync --workspace ./release-align.yml --group search --repo storage/pebble-object-bin
 ```
 
 | Flag | Short | Default | Environment | Meaning |
@@ -86,7 +86,7 @@ release-align <version> (commit <sha>, built <time>)
 
 ### release-align help
 
-`release-align help`, `--help`, and `-h` print help for sync. `release-align help version` and `release-align help completion` print help for those commands. `release-align completion --help` does the same for completion.
+`release-align help`, `--help`, and `-h` print help. `release-align` with no command does the same and does not sync. `release-align help version` and `release-align help completion` print help for those commands. `release-align completion --help` does the same for completion.
 
 ### release-align completion
 
@@ -101,12 +101,12 @@ release-align completion powershell
 
 `--no-descriptions` leaves flag descriptions out of the script. Bash needs the `bash-completion` package. The current bash session can load the script with `source <(release-align completion bash)`.
 
-### release-align status
+### release-align workspace status
 
 Reads cached refs and worktrees. Without `--remote` it does not call GitLab. It does not accept `--dry-run`. `--remote` adds the group inventory after the local check and does not clone. `freshness=cached` means the refs used for readiness were already local; it is not a certificate that every installed Git build stayed off the network.
 
 ```bash
-release-align status --base-dir "$HOME/src/git.example.com" \
+release-align workspace status --base-dir "$HOME/src/git.example.com" \
   --workspace ./release-align.yml --group search --output json
 ```
 
@@ -171,7 +171,7 @@ An unlisted clone is not an error. Another project under the same directory may 
 
 Refresh does not fetch, switch, or ask the server whether `defaults.revision` exists. Exit 0 means the comparison finished. Unlisted and missing paths can still be present. Exit 1 is a scan, Git, lock, or write failure. Exit 2 is flags or a workspace document that cannot be updated. The output does not say that the repositories are ready.
 
-A repository that was created on the server but never cloned is not in this scan. `status --remote` and `workspace clone` read that list from the GitLab groups saved in the file. `refresh` does not call the API.
+A repository that was created on the server but never cloned is not in this scan. `workspace status --remote` and `workspace clone` read that list from the GitLab groups saved in the file. `refresh` does not call the API.
 
 While it writes, refresh creates `<file>.lock` next to the workspace with `O_EXCL` and does not wait. The lock coordinates release-align processes. An editor does not take it. If a crash leaves the lock, confirm that no refresh is running, then delete that file. The program does not delete a lock it did not create and does not treat an old lock as free. A preview does not create the lock.
 
@@ -187,7 +187,7 @@ The fast-forward then uses that resolved commit. Afterward the worktree is read 
 
 The update itself is a local `git merge --ff-only` from the resolved commit. There is no second network request, no merge commit, no rebase, and no push. Git still runs hooks and filters, under the same command timeout. Recursive submodule checkout and fetch are off. `switch` and the fast-forward pass `--no-overwrite-ignore`, so a local ignored file is left in place.
 
-Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not fetch (`freshness` `cached`) and set `GIT_NO_LAZY_FETCH=1`, as described above. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. `--dry-run --remote` is rejected; use `status --remote` to ask GitLab. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
+Fetch may update remote-tracking refs even when the worktrees stay put; the report then has `freshness` `fetched`. `status` and `--dry-run` do not fetch (`freshness` `cached`) and set `GIT_NO_LAZY_FETCH=1`, as described above. A dry-run exits 0 when the cached plan has no blocker, and `ready` is still false. `--dry-run --remote` is rejected; use `workspace status --remote` to ask GitLab. URL userinfo and the credential query parameters `token`, `access_token`, `private_token`, `password`, `oauth_token`, and `secret` are removed from Git diagnostics before they are logged or printed. That does not cover an arbitrary secret from a hook or a credential helper.
 
 `--output json` writes one JSON object to stdout. Progress and logs go to stderr. `expected_count` is the selection, `inventory_count` is the whole file, and `scope` is `workspace` or `selection`. `coverage_complete` means every selected path has a row, not that every clone exists.
 
@@ -206,7 +206,7 @@ The workspace is one YAML document: a west `manifest` and a `release-align` bloc
 This is not a replacement for west. A flat manifest with projects, URLs, paths, groups, and unambiguous branch, tag, or commit revisions can be passed to `--workspace` without moving the clones. `import` and enabled submodule updates are rejected before Git changes anything; `submodules: false` is accepted. `clone-depth` is preserved as metadata, but `workspace clone` refuses to use it. Resolve imports with `west manifest --resolve` and pass that file. `self.path` is not `--base-dir`. `west-commands` are kept and never executed. `--output json` and `_release-align/manifest.json` inside an archive stay JSON. Anchors, aliases, merge keys, and custom YAML tags are rejected. New files use two-space indentation and compact group lists. Only configured timeout overrides are written. `manifest.version` is a west schema version; `release-align.schema-version` is our own document version. Unsupported west schema versions fail explicitly. `manifest.group-filter` retains inactive projects in the file while excluding them from an unfiltered run. Explicitly selecting an inactive project or a group with no active projects is an error. External `.west/config` settings are not inherited.
 
 ```bash
-release-align status --workspace ./release-align.yml --base-dir "$RELEASE_ALIGN_BASE_DIR" --remote
+release-align workspace status --workspace ./release-align.yml --base-dir "$RELEASE_ALIGN_BASE_DIR" --remote
 
 release-align workspace clone \
   --workspace ./release-align.yml \
@@ -223,7 +223,7 @@ release-align workspace clone \
 
 `--remote` on `status` or on a sync checks the saved groups after the local operation and prints the difference. It does not clone and it does not change the workspace file. Without `--remote` the report says the inventory was not checked. `ready` counts selected workspace rows. Uncloned projects in the GitLab scope are a separate list, not a failed selection. Archived projects and projects shared in from outside the group are omitted. If the API does not return a complete list, the report says the catalog is unknown and does not claim that nothing is new. After a confirmed network failure or a cancel of the sync, the API is not asked again. If the branches were switched and the inventory request then fails, the message says both: alignment completed, inventory failed, nothing was cloned. The exit status is 1.
 
-`workspace clone` downloads missing checkouts into `<base-dir>/<path_with_namespace>`, reuses a matching checkout, and appends new rows without changing pins or order. `--repo` and `--all` cannot be combined. `--all` is the saved server scope, not the whole GitLab instance and not `--group`. A project with no default branch is skipped by `--all` and rejected by `--repo`. An occupied path or a different origin is left alone. Clones run one after another, on the remote default branch, without a depth filter. A later `release-align` aligns the release. If one clone fails, finished checkouts stay on disk and completed new rows are still saved. If the YAML write fails, those checkouts stay and the output includes a recovery command. Ctrl-C does not start that write. Clone takes the base-directory lock before the workspace file lock described above.
+`workspace clone` downloads missing checkouts into `<base-dir>/<path_with_namespace>`, reuses a matching checkout, and appends new rows without changing pins or order. `--repo` and `--all` cannot be combined. `--all` is the saved server scope, not the whole GitLab instance and not `--group`. A project with no default branch is skipped by `--all` and rejected by `--repo`. An occupied path or a different origin is left alone. Clones run one after another, on the remote default branch, without a depth filter. A later `workspace sync` aligns the release. If one clone fails, finished checkouts stay on disk and completed new rows are still saved. If the YAML write fails, those checkouts stay and the output includes a recovery command. Ctrl-C does not start that write. Clone takes the base-directory lock before the workspace file lock described above.
 
 ## Network and parallelism
 
@@ -237,7 +237,7 @@ Commands inside one repository run one after another. Worktrees that share a git
 
 Ctrl+C exits with status 130. Repositories already switched stay switched.
 
-Each log line is text: the local clock (`2026-10-05 14:20:15`), the level, the repository name, and the message. Paths that block an update are listed under that line, one path per line, at most 10. The rest are a single `... and N more` line. `--log-level debug` lists every path and adds fetch and probe detail. Git's own transcript stays quiet. On a terminal the level and the repository name are colored. `NO_COLOR` leaves the text uncolored. Lines from different workers are not interleaved.
+Each log line is text: the local clock (`2026-10-05 14:20:15`), the level, the repository name, and the message. Fields after the message are `key=value` pairs separated by commas. A phase line also carries `done` or `found`, `percent`, `elapsed`, and `left` (an estimate from the average so far; `unknown` until the first unit finishes). Paths that block an update are listed under that line, one path per line, at most 10. The rest are a single `... and N more` line. `--log-level debug` lists every path and adds fetch and probe detail. Git's own transcript stays quiet. On a terminal the clock, the level, the repository name, and the `elapsed`, `left`, and `percent` values are colored. `NO_COLOR` leaves the text uncolored. Lines from different workers are not interleaved. Repositories left untouched by Ctrl+C or a dead origin are one `count` line, not one line each.
 
 A sync creates `<base-dir>/.release-align.lock` and removes it on exit. SIGKILL or a power loss can leave the directory behind. Confirm that the process is gone, then delete that directory. The program never deletes `.git/index.lock`. Other Git clients do not consult this lock, so a second pass over the same clones should not run at the same time.
 

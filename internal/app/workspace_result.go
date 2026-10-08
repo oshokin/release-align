@@ -5,38 +5,44 @@ import (
 	"errors"
 )
 
+// workspaceFinish is the planned run that finishWorkspace turns into a report.
+type workspaceFinish struct {
+	// report is the mutable workspace report.
+	report *WorkspaceReport
+	// items are the planned repositories.
+	items []*workspaceItem
+	// freshness is the remote inventory note, when one was collected.
+	freshness string
+	// runErr is the first failure from planning or applying.
+	runErr error
+}
+
 // finishWorkspace fills the report and chooses the error returned to the caller.
-func finishWorkspace(
-	ctx context.Context,
-	report *WorkspaceReport,
-	items []*workspaceItem,
-	freshness string,
-	runErr error,
-) (*WorkspaceReport, error) {
-	if freshness != "" {
-		report.Freshness = freshness
+func finishWorkspace(ctx context.Context, done *workspaceFinish) (*WorkspaceReport, error) {
+	if done.freshness != "" {
+		done.report.Freshness = done.freshness
 	}
 
-	if ctx.Err() != nil && (runErr == nil || errors.Is(runErr, context.Canceled)) {
-		markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
-		runErr = context.Cause(ctx)
+	if ctx.Err() != nil && (done.runErr == nil || errors.Is(done.runErr, context.Canceled)) {
+		markPending(done.items, outcomeCanceled, reasonCanceled, messageRunStopped)
+		done.runErr = context.Cause(ctx)
 	}
 
-	if runErr != nil && !workspaceUsage(runErr) && !errors.Is(runErr, errWorkspaceNotReady) {
-		report.Errors = append(report.Errors, redactGitText(runErr.Error()))
+	if done.runErr != nil && !workspaceUsage(done.runErr) && !errors.Is(done.runErr, errWorkspaceNotReady) {
+		done.report.Errors = append(done.report.Errors, redactGitText(done.runErr.Error()))
 	}
 
-	finalizeErr := report.Finalize(workspacePaths(items))
+	finalizeErr := done.report.Finalize(workspacePaths(done.items))
 	if finalizeErr != nil {
-		report.Errors = append(report.Errors, finalizeErr.Error())
-		runErr = preferErr(runErr, finalizeErr)
+		done.report.Errors = append(done.report.Errors, finalizeErr.Error())
+		done.runErr = preferErr(done.runErr, finalizeErr)
 	}
 
-	if runErr != nil {
-		return report, runErr
+	if done.runErr != nil {
+		return done.report, done.runErr
 	}
 
-	return report, workspaceResultError(report)
+	return done.report, workspaceResultError(done.report)
 }
 
 // preferErr keeps the first error and ignores a later one.

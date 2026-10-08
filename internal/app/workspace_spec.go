@@ -136,7 +136,7 @@ func (w *WorkspaceSpec) SelectProjects(paths, groups []string) ([]*ProjectSpec, 
 
 	selected := make([]*ProjectSpec, 0, len(w.Projects))
 	for _, p := range w.Projects {
-		if w.projectActive(p) && projectSelected(p, paths, groups) {
+		if w.projectActive(p) && w.projectSelected(p, paths, groups) {
 			selected = append(selected, p)
 		}
 	}
@@ -144,42 +144,6 @@ func (w *WorkspaceSpec) SelectProjects(paths, groups []string) ([]*ProjectSpec, 
 	slices.SortFunc(selected, func(a, b *ProjectSpec) int { return strings.Compare(a.Path, b.Path) })
 
 	return selected, nil
-}
-
-// disabledGroups applies group-filter in order. The last entry for a name wins.
-func disabledGroups(filters []*GroupFilter) map[string]bool {
-	disabled := make(map[string]bool)
-
-	for _, filter := range filters {
-		if filter == nil {
-			continue
-		}
-
-		if filter.Disable {
-			disabled[filter.Name] = true
-
-			continue
-		}
-
-		delete(disabled, filter.Name)
-	}
-
-	return disabled
-}
-
-// projectSelected reports that the CLI filters include one active project.
-func projectSelected(project *ProjectSpec, paths, groups []string) bool {
-	if len(paths)+len(groups) == 0 || slices.Contains(paths, project.Path) {
-		return true
-	}
-
-	for _, group := range groups {
-		if slices.Contains(project.Groups, group) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // WithDefaultBranch returns a copy whose implicit branch is branch.
@@ -209,6 +173,42 @@ func (w *WorkspaceSpec) WithDefaultBranch(branch string) (*WorkspaceSpec, error)
 	return next, nil
 }
 
+// disabledGroups applies group-filter in order. The last entry for a name wins.
+func (w *WorkspaceSpec) disabledGroups(filters []*GroupFilter) map[string]bool {
+	disabled := make(map[string]bool)
+
+	for _, filter := range filters {
+		if filter == nil {
+			continue
+		}
+
+		if filter.Disable {
+			disabled[filter.Name] = true
+
+			continue
+		}
+
+		delete(disabled, filter.Name)
+	}
+
+	return disabled
+}
+
+// projectSelected reports that the CLI filters include one active project.
+func (w *WorkspaceSpec) projectSelected(project *ProjectSpec, paths, groups []string) bool {
+	if len(paths)+len(groups) == 0 || slices.Contains(paths, project.Path) {
+		return true
+	}
+
+	for _, group := range groups {
+		if slices.Contains(project.Groups, group) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // clone returns an independent inventory. Each project, group list, and revision is its own value.
 func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 	var projects []*ProjectSpec
@@ -229,7 +229,7 @@ func (w *WorkspaceSpec) clone() *WorkspaceSpec {
 		implicitMaster:    w.implicitMaster,
 		GitLab:            w.GitLab.clone(),
 		Timeouts:          w.Timeouts.clone(),
-		GroupFilter:       cloneGroupFilters(w.GroupFilter),
+		GroupFilter:       w.cloneGroupFilters(w.GroupFilter),
 		Projects:          projects,
 		URLGaps:           slices.Clone(w.URLGaps),
 		GitLabURLFromBase: w.GitLabURLFromBase,
@@ -292,7 +292,7 @@ func (w *WorkspaceSpec) projectActive(project *ProjectSpec) bool {
 		return project != nil
 	}
 
-	disabled := disabledGroups(w.GroupFilter)
+	disabled := w.disabledGroups(w.GroupFilter)
 	for _, group := range project.Groups {
 		if !disabled[group] {
 			return true
@@ -303,7 +303,7 @@ func (w *WorkspaceSpec) projectActive(project *ProjectSpec) bool {
 }
 
 // cloneGroupFilters copies the group-filter list.
-func cloneGroupFilters(filters []*GroupFilter) []*GroupFilter {
+func (w *WorkspaceSpec) cloneGroupFilters(filters []*GroupFilter) []*GroupFilter {
 	if filters == nil {
 		return nil
 	}
@@ -353,14 +353,14 @@ func (p *ProjectSpec) clone() *ProjectSpec {
 		Revision:         p.Revision.clone(),
 		shortRevision:    p.shortRevision,
 		resolvedRevision: p.resolvedRevision.clone(),
-		CloneDepth:       cloneDepth(p.CloneDepth),
+		CloneDepth:       p.cloneDepth(p.CloneDepth),
 	}
 
 	return cloned
 }
 
 // cloneDepth copies one optional west clone-depth.
-func cloneDepth(depth *int) *int {
+func (p *ProjectSpec) cloneDepth(depth *int) *int {
 	if depth == nil {
 		return nil
 	}

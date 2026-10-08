@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // WorkspaceInitOptions describes local inventory discovery, not repository synchronization.
@@ -35,6 +36,16 @@ type workspaceScanner struct {
 	// base is the directory being walked.
 	base string
 	// projects are the clones found so far.
+	projects []*ProjectSpec
+	// gaps are paths whose origin URL was not stored.
+	gaps []string
+	// progress counts clones as they are found. The walk does not know the total ahead of time.
+	progress *logger.Progress
+}
+
+// discoveredWorkspace is the set of clones found under one base directory.
+type discoveredWorkspace struct {
+	// projects are the working trees, sorted by path.
 	projects []*ProjectSpec
 	// gaps are paths whose origin URL was not stored.
 	gaps []string
@@ -87,12 +98,12 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		return nil, err
 	}
 
-	projects, gaps, err := discoverWorkspaceProjects(ctx, g, base)
+	found, err := discoverWorkspaceProjects(ctx, g, base)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(projects) == 0 {
+	if len(found.projects) == 0 {
 		return nil, errWorkspaceInitEmpty
 	}
 
@@ -103,8 +114,8 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 		DefaultRevision: &RevisionSpec{
 			Branch: options.Branch,
 		},
-		Projects: projects,
-		URLGaps:  gaps,
+		Projects: found.projects,
+		URLGaps:  found.gaps,
 	}
 
 	gitlabURL, fromBase := gitlabURLForInit(options, base)
@@ -132,9 +143,12 @@ func DiscoverWorkspaceProjects(ctx context.Context, g LocalGit, baseDir string) 
 		return nil, err
 	}
 
-	projects, _, err := discoverWorkspaceProjects(ctx, g, base)
+	found, err := discoverWorkspaceProjects(ctx, g, base)
+	if err != nil {
+		return nil, err
+	}
 
-	return projects, err
+	return found.projects, nil
 }
 
 // canonicalWorkspaceBase resolves a directory that contains clones and is not followed past its real path.
@@ -222,11 +236,12 @@ func dnsLabel(label string) bool {
 }
 
 // discoverWorkspaceProjects walks one canonical base directory.
-func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) ([]*ProjectSpec, []string, error) {
+func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) (*discoveredWorkspace, error) {
 	scanner := &workspaceScanner{
 		git:      g,
 		base:     base,
 		projects: []*ProjectSpec{},
+		progress: logger.NewProgress("scan", 0),
 	}
 
 	err := filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -241,15 +256,21 @@ func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) ([]
 		return scanner.visit(ctx, path, entry)
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	slices.SortFunc(scanner.projects, func(left, right *ProjectSpec) int {
 		return strings.Compare(left.Path, right.Path)
 	})
 	slices.Sort(scanner.gaps)
+	scanner.progress.Finish(ctx, "scan finished")
 
-	return scanner.projects, scanner.gaps, nil
+	found := &discoveredWorkspace{
+		projects: scanner.projects,
+		gaps:     scanner.gaps,
+	}
+
+	return found, nil
 }
 
 // visit prunes excluded directories and validates every discovered Git working tree.
@@ -316,6 +337,7 @@ func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
 		URL:    origin,
 	}
 	s.projects = append(s.projects, project)
+	s.progress.Advance(ctx, projectPath, "found")
 
 	return nil
 }

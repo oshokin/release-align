@@ -5,6 +5,14 @@ import (
 	"errors"
 )
 
+// revisionRead is the requested object and the worktree observed beside it.
+type revisionRead struct {
+	// resolved is the object the workspace revision named.
+	resolved *ResolvedRevision
+	// state is the worktree read after that object was resolved.
+	state *ObservedState
+}
+
 // checkWorkspaceRefs rejects revision names Git would not accept.
 func (r *runner) checkWorkspaceRefs(ctx context.Context, items []*workspaceItem) error {
 	for _, item := range items {
@@ -48,12 +56,17 @@ func (*runner) workspaceRefName(revision *RevisionSpec) string {
 
 // planWorkspace decides the outcome of every pending repository.
 func (r *runner) planWorkspace(ctx context.Context, items []*workspaceItem) error {
+	r.beginPhase("plan", r.pendingCount(items))
+
 	for _, item := range items {
 		if !rowPending(item.row) {
 			continue
 		}
 
-		if err := r.planItem(ctx, item); err != nil {
+		err := r.planItem(ctx, item)
+		r.step(ctx, item.spec.Path, r.rowLogMessage(item.row))
+
+		if err != nil {
 			markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
 
 			return err
@@ -69,12 +82,12 @@ func (r *runner) planWorkspace(ctx context.Context, items []*workspaceItem) erro
 
 // planItem resolves one repository and records whether it can be switched.
 func (r *runner) planItem(ctx context.Context, item *workspaceItem) error {
-	resolved, state, err := r.readRevision(ctx, item)
-	if err != nil || resolved == nil {
+	read, err := r.readRevision(ctx, item)
+	if err != nil || read == nil || read.resolved == nil {
 		return err
 	}
 
-	code, message := r.switchBlocker(ctx, item, state, resolved)
+	code, message := r.switchBlocker(ctx, item, read.state, read.resolved)
 	if code != "" {
 		blockRow(item.row, outcomeBlocked, code, message)
 
@@ -90,12 +103,22 @@ func (r *runner) planItem(ctx context.Context, item *workspaceItem) error {
 
 // readCached resolves revisions from the local clone without fetching.
 func (r *runner) readCached(ctx context.Context, items []*workspaceItem, plan bool) error {
+	phase := "status"
+	if plan {
+		phase = "plan"
+	}
+
+	r.beginPhase(phase, r.pendingCount(items))
+
 	for _, item := range items {
 		if !rowPending(item.row) {
 			continue
 		}
 
-		if err := r.readOne(ctx, item, plan); err != nil {
+		err := r.readOne(ctx, item, plan)
+		r.step(ctx, item.spec.Path, r.rowLogMessage(item.row))
+
+		if err != nil {
 			markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
 
 			return err
@@ -111,16 +134,16 @@ func (r *runner) readCached(ctx context.Context, items []*workspaceItem, plan bo
 
 // readOne reads one repository and either plans it or records its status.
 func (r *runner) readOne(ctx context.Context, item *workspaceItem, plan bool) error {
-	resolved, state, err := r.readRevision(ctx, item)
-	if err != nil || resolved == nil {
+	read, err := r.readRevision(ctx, item)
+	if err != nil || read == nil || read.resolved == nil {
 		return err
 	}
 
 	if plan {
-		return r.finishPlan(ctx, item, state, resolved)
+		return r.finishPlan(ctx, item, read.state, read.resolved)
 	}
 
-	if r.alreadyPinned(state, resolved) {
+	if r.alreadyPinned(read.state, read.resolved) {
 		item.row.ReasonCode = ""
 		item.row.Outcome = outcomeObserved
 		item.row.Message = "local HEAD matches the requested revision"
@@ -128,7 +151,7 @@ func (r *runner) readOne(ctx context.Context, item *workspaceItem, plan bool) er
 		return nil
 	}
 
-	code, message := r.statusMismatch(state, resolved)
+	code, message := r.statusMismatch(read.state, read.resolved)
 	blockRow(item.row, outcomeBlocked, code, message)
 
 	return nil
@@ -159,29 +182,33 @@ func (r *runner) finishPlan(
 func (r *runner) readRevision(
 	ctx context.Context,
 	item *workspaceItem,
-) (*ResolvedRevision, *ObservedState, error) {
+) (*revisionRead, error) {
 	resolved, err := ResolveRevision(ctx, r.git, item.dir, item.revision)
 	if err != nil {
-		return nil, nil, r.noteResolve(ctx, item, err)
+		return nil, r.noteResolve(ctx, item, err)
 	}
 
 	state, err := ObserveWorkspaceState(ctx, r.git, item.dir)
 	if err != nil && ctx.Err() != nil {
-		return nil, nil, context.Cause(ctx)
+		return nil, context.Cause(ctx)
 	}
 
 	if err != nil {
 		code, message := r.workspaceGitReason(err)
 		blockRow(item.row, outcomeBlocked, code, message)
 
-		return nil, nil, nil
+		return &revisionRead{}, nil
 	}
 
 	item.resolved = resolved
 	item.row.Expected = resolved
 	item.row.Actual = state
+	read := &revisionRead{
+		resolved: resolved,
+		state:    state,
+	}
 
-	return resolved, state, nil
+	return read, nil
 }
 
 // noteResolve records a failure to resolve the requested revision.

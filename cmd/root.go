@@ -41,43 +41,24 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	cfg := app.DefaultConfig()
 	root := &cobra.Command{
 		Use:   "release-align",
-		Short: "Switch local Git clones to the revisions in a workspace file",
-		Long: "Each selected project is moved to its exact branch, tag, or commit. " +
-			"The run fails when a selected project is not ready. " +
-			"--workspace defaults to release-align.yml. " +
-			"An omitted --base-dir uses release-align.base-dir from that file. " +
-			"--remote asks GitLab for the configured groups after that and does not clone.",
+		Short: "Align local Git clones to one release",
+		Long: "workspace sync moves each selected project to its exact branch, tag, or commit. " +
+			"The bare command prints help and does not fetch or switch.",
 		Version:       fullVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args: func(cmd *cobra.Command, args []string) error {
-			if err := cobra.NoArgs(cmd, args); err != nil {
-				return &commandError{
-					code:  exitUsage,
-					cause: err,
-				}
-			}
-
-			return nil
-		},
+		Args:          noPositionalArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCommand(cmd, cfg)
+			return cmd.Help()
 		},
 	}
 	root.SetOut(out)
 	root.SetErr(errOut)
 	root.SetVersionTemplate("{{.Version}}\n")
-	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
-	})
+	root.SetFlagErrorFunc(usageFlagError)
 
-	bindFlags(root, cfg)
 	root.AddCommand(newVersionCommand())
-	root.AddCommand(newStatusCommand(cfg))
-	root.AddCommand(newWorkspaceCommand())
+	root.AddCommand(newWorkspaceCommand(cfg))
 
 	return root
 }
@@ -117,6 +98,30 @@ func interruptedExit(err error, errOut io.Writer) int {
 	return exitInterrupted
 }
 
+// noPositionalArgs rejects operands. Flags carry the selection.
+func noPositionalArgs(cmd *cobra.Command, args []string) error {
+	if err := cobra.NoArgs(cmd, args); err != nil {
+		failure := &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+
+		return failure
+	}
+
+	return nil
+}
+
+// usageFlagError maps a parse failure to the usage status.
+func usageFlagError(_ *cobra.Command, err error) error {
+	failure := &commandError{
+		code:  exitUsage,
+		cause: err,
+	}
+
+	return failure
+}
+
 // runCommand loads the workspace and syncs the selected projects.
 func runCommand(cmd *cobra.Command, cfg *app.Config) error {
 	if err := applyCommandEnv(cmd, cfg); err != nil {
@@ -126,7 +131,7 @@ func runCommand(cmd *cobra.Command, cfg *app.Config) error {
 	return runWorkspaceCommand(cmd, cfg, app.ModeSync)
 }
 
-// bindFlags registers the root command flags on cfg.
+// bindFlags registers the sync and status flags on cfg.
 func bindFlags(root *cobra.Command, cfg *app.Config) {
 	flags := root.Flags()
 	flags.StringVar(

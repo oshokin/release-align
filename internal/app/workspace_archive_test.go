@@ -14,6 +14,20 @@ import (
 	"time"
 )
 
+// archiveOptInput is the variable part of a test archive request.
+type archiveOptInput struct {
+	// fixture supplies the workspace root.
+	fixture *fixture
+	// workspace is the YAML path.
+	workspace string
+	// dest is the ZIP path.
+	dest string
+	// repos limits the archive to these paths.
+	repos []string
+	// groups limits the archive to these groups.
+	groups []string
+}
+
 // TestArchivePacksPinnedTrees checks filters, pins, and a dirty worktree.
 func TestArchivePacksPinnedTrees(t *testing.T) {
 	f := setup(t)
@@ -62,7 +76,9 @@ func TestArchivePacksPinnedTrees(t *testing.T) {
 	file := writeWorkspace(t, f.base, spec)
 	dest := filepath.Join(f.base, "out.zip")
 
-	_, err := ArchiveWorkspace(t.Context(), archiveOpts(f, file, dest, nil, nil))
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	_, err := ArchiveWorkspace(t.Context(), archiveOpts(in))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,10 +95,14 @@ func TestArchivePacksPinnedTrees(t *testing.T) {
 		t.Fatalf("manifest %+v", manifest.Repositories[0])
 	}
 
-	grouped, err := ArchiveWorkspace(
-		t.Context(),
-		archiveOpts(f, file, filepath.Join(f.base, "group.zip"), nil, []string{"lamiona"}),
-	)
+	groupedIn := &archiveOptInput{
+		fixture:   f,
+		workspace: file,
+		dest:      filepath.Join(f.base, "group.zip"),
+		groups:    []string{"lamiona"},
+	}
+
+	grouped, err := ArchiveWorkspace(t.Context(), archiveOpts(groupedIn))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +118,9 @@ func TestArchiveKeepsThePlannedCommit(t *testing.T) {
 	file := writeWorkspace(t, f.base, archiveProject(f, nil))
 	dest := filepath.Join(f.base, "planned.zip")
 
-	job, err := newArchiveJob(t.Context(), archiveOpts(f, file, dest, nil, nil))
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	job, err := newArchiveJob(t.Context(), archiveOpts(in))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +167,9 @@ func TestArchiveHonorsExportIgnoreAndModes(t *testing.T) {
 	file := writeWorkspace(t, f.base, archiveProject(f, nil))
 	dest := filepath.Join(f.base, "modes.zip")
 
-	report, err := ArchiveWorkspace(t.Context(), archiveOpts(f, file, dest, nil, nil))
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	report, err := ArchiveWorkspace(t.Context(), archiveOpts(in))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,13 +203,16 @@ func TestArchiveHonorsExportIgnoreAndModes(t *testing.T) {
 func TestArchiveFailurePublishesNothing(t *testing.T) {
 	f := setup(t)
 	spec := archiveProject(f, nil)
-	spec.Projects = append(spec.Projects, &ProjectSpec{
+	missing := &ProjectSpec{
 		Path: "lamiona/missing",
-	})
+	}
+	spec.Projects = append(spec.Projects, missing)
 	file := writeWorkspace(t, f.base, spec)
 	dest := filepath.Join(f.base, "missing.zip")
 
-	_, err := ArchiveWorkspace(t.Context(), archiveOpts(f, file, dest, nil, nil))
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	_, err := ArchiveWorkspace(t.Context(), archiveOpts(in))
 	if err == nil {
 		t.Fatal("missing clone succeeded")
 	}
@@ -200,7 +227,9 @@ func TestArchiveFailurePublishesNothing(t *testing.T) {
 	file = writeWorkspace(t, f.base, archiveProject(f, pinned))
 	dest = filepath.Join(f.base, "absent.zip")
 
-	_, err = ArchiveWorkspace(t.Context(), archiveOpts(f, file, dest, nil, nil))
+	absent := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	_, err = ArchiveWorkspace(t.Context(), archiveOpts(absent))
 	if err == nil {
 		t.Fatal("missing object succeeded")
 	}
@@ -211,10 +240,12 @@ func TestArchiveFailurePublishesNothing(t *testing.T) {
 
 	kept := filepath.Join(f.base, "kept.zip")
 	write(t, kept, "keep")
-	_, err = ArchiveWorkspace(
-		t.Context(),
-		archiveOpts(f, writeWorkspace(t, f.base, archiveProject(f, nil)), kept, nil, nil),
-	)
+	keptIn := &archiveOptInput{
+		fixture:   f,
+		workspace: writeWorkspace(t, f.base, archiveProject(f, nil)),
+		dest:      kept,
+	}
+	_, err = ArchiveWorkspace(t.Context(), archiveOpts(keptIn))
 
 	if err == nil || string(mustRead(t, kept)) != "keep" {
 		t.Fatalf("existing archive changed: %v", err)
@@ -226,7 +257,8 @@ func TestArchiveTimeoutAndCancel(t *testing.T) {
 	f := setup(t)
 	file := writeWorkspace(t, f.base, archiveProject(f, nil))
 	dest := filepath.Join(f.base, "slow.zip")
-	opts := archiveOpts(f, file, dest, nil, nil)
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+	opts := archiveOpts(in)
 	opts.ArchiveTimeout = time.Nanosecond
 
 	_, err := ArchiveWorkspace(t.Context(), opts)
@@ -241,7 +273,9 @@ func TestArchiveTimeoutAndCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	dest = filepath.Join(f.base, "canceled.zip")
-	_, err = ArchiveWorkspace(ctx, archiveOpts(f, file, dest, nil, nil))
+	canceledIn := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	_, err = ArchiveWorkspace(ctx, archiveOpts(canceledIn))
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
@@ -338,7 +372,9 @@ func TestArchiveLargeFileCopiesABlob(t *testing.T) {
 	file := writeWorkspace(t, f.base, archiveProject(f, nil))
 	dest := filepath.Join(f.base, "blob.zip")
 
-	_, err := ArchiveWorkspace(t.Context(), archiveOpts(f, file, dest, nil, nil))
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+
+	_, err := ArchiveWorkspace(t.Context(), archiveOpts(in))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,13 +400,13 @@ func archiveProject(f *fixture, revision *RevisionSpec) *WorkspaceSpec {
 	}
 }
 
-func archiveOpts(f *fixture, workspace, dest string, repos, groups []string) *WorkspaceArchiveOptions {
+func archiveOpts(in *archiveOptInput) *WorkspaceArchiveOptions {
 	return &WorkspaceArchiveOptions{
-		WorkspaceFile:  workspace,
-		BaseDir:        f.base,
-		File:           dest,
-		Repositories:   repos,
-		Groups:         groups,
+		WorkspaceFile:  in.workspace,
+		BaseDir:        in.fixture.base,
+		File:           in.dest,
+		Repositories:   in.repos,
+		Groups:         in.groups,
 		Output:         outputText,
 		ArchiveTimeout: time.Minute,
 		LocalTimeout:   5 * time.Second,
@@ -470,13 +506,13 @@ func zipHas(t *testing.T, archive, name string) bool {
 func readManifest(t *testing.T, archive string) *archiveManifest {
 	t.Helper()
 
-	var manifest archiveManifest
+	manifest := &archiveManifest{}
 
-	if err := json.Unmarshal([]byte(zipText(t, archive, archiveManifestDir+"/manifest.json")), &manifest); err != nil {
+	if err := json.Unmarshal([]byte(zipText(t, archive, archiveManifestDir+"/manifest.json")), manifest); err != nil {
 		t.Fatal(err)
 	}
 
-	return &manifest
+	return manifest
 }
 
 func mustRead(t *testing.T, path string) []byte {

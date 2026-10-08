@@ -139,8 +139,8 @@ func TestCommandsRejectMissingBaseDir(t *testing.T) {
 	zip := filepath.Join(root, "sources.zip")
 	commands := [][]string{
 		{"workspace", "init"},
-		{"status", "--workspace", file},
-		{"--workspace", file},
+		{"workspace", "status", "--workspace", file},
+		{"workspace", "sync", "--workspace", file},
 		{"workspace", "refresh", "--file", file},
 		{"workspace", "clone", "--workspace", file, "--repo", "lamiona/search/calyra"},
 		{"workspace", "archive", "--workspace", file, "--file", zip},
@@ -167,7 +167,7 @@ func TestBaseDirEnvironmentBeatsFile(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 
-	status := []string{"status", "--workspace", file}
+	status := []string{"workspace", "status", "--workspace", file}
 	if code := Execute(status, &out, &errOut); code == exitOK {
 		t.Fatal("status used the file instead of BASE_DIR")
 	}
@@ -175,7 +175,7 @@ func TestBaseDirEnvironmentBeatsFile(t *testing.T) {
 	out.Reset()
 	errOut.Reset()
 
-	sync := []string{"--dry-run", "--workspace", file}
+	sync := []string{"workspace", "sync", "--dry-run", "--workspace", file}
 	if code := Execute(sync, &out, &errOut); code == exitOK {
 		t.Fatal("sync used the file instead of BASE_DIR")
 	}
@@ -217,8 +217,8 @@ func TestBaseDirFlagBeatsEnvironment(t *testing.T) {
 	t.Setenv("RELEASE_ALIGN_BASE_DIR", t.TempDir())
 	zip := filepath.Join(root, "sources.zip")
 	commands := [][]string{
-		{"status", "--workspace", file, "--base-dir", base},
-		{"--dry-run", "--workspace", file, "--base-dir", base},
+		{"workspace", "status", "--workspace", file, "--base-dir", base},
+		{"workspace", "sync", "--dry-run", "--workspace", file, "--base-dir", base},
 		{"workspace", "refresh", "--file", file, "--base-dir", base},
 		{"workspace", "archive", "--workspace", file, "--base-dir", base, "--file", zip},
 	}

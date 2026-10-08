@@ -86,7 +86,7 @@ func (d *remoteDiff) leftovers() {
 			continue
 		}
 
-		if d.spec.GitLab != nil && gitlabScope(project.Path, d.spec.GitLab.Groups) {
+		if d.spec.GitLab != nil && d.gitlabScope(project.Path, d.spec.GitLab.Groups) {
 			d.catalog.NotReturned = append(d.catalog.NotReturned, project.Path)
 
 			continue
@@ -98,13 +98,13 @@ func (d *remoteDiff) leftovers() {
 
 // finish sorts every name list. Empty lists stay empty arrays.
 func (d *remoteDiff) finish() {
-	d.catalog.NotCloned = sortNames(d.catalog.NotCloned)
-	d.catalog.LocalUnlisted = sortNames(d.catalog.LocalUnlisted)
-	d.catalog.Conflicts = sortNames(d.catalog.Conflicts)
-	d.catalog.NotReturned = sortNames(d.catalog.NotReturned)
-	d.catalog.DifferentPath = sortNames(d.catalog.DifferentPath)
-	d.catalog.OutsideScope = sortNames(d.catalog.OutsideScope)
-	d.catalog.SkippedEmpty = sortNames(d.catalog.SkippedEmpty)
+	d.catalog.NotCloned = d.sortNames(d.catalog.NotCloned)
+	d.catalog.LocalUnlisted = d.sortNames(d.catalog.LocalUnlisted)
+	d.catalog.Conflicts = d.sortNames(d.catalog.Conflicts)
+	d.catalog.NotReturned = d.sortNames(d.catalog.NotReturned)
+	d.catalog.DifferentPath = d.sortNames(d.catalog.DifferentPath)
+	d.catalog.OutsideScope = d.sortNames(d.catalog.OutsideScope)
+	d.catalog.SkippedEmpty = d.sortNames(d.catalog.SkippedEmpty)
 }
 
 // classify puts one API project into a single primary bucket, plus an empty-branch note.
@@ -169,11 +169,11 @@ func (d *remoteDiff) matches(project *gitlab.Project) []string {
 
 	for _, raw := range urls {
 		if key, ok := parseRemote(raw); ok {
-			d.collect(d.byKey[remoteID(key)], seen, &found)
+			d.collect(d.byKey[d.remoteID(key)], seen, &found)
 		}
 
 		if d.allowLocal {
-			d.collect(d.byOrigin[cleanLocal(raw)], seen, &found)
+			d.collect(d.byOrigin[d.cleanLocal(raw)], seen, &found)
 		}
 	}
 
@@ -201,11 +201,11 @@ func (d *remoteDiff) addOrigin(root *localRoot) {
 	}
 
 	if key, ok := parseRemote(root.origin); ok {
-		id := remoteID(key)
+		id := d.remoteID(key)
 		d.byKey[id] = append(d.byKey[id], root.path)
 	}
 
-	if cleaned := cleanLocal(root.origin); cleaned != "" {
+	if cleaned := d.cleanLocal(root.origin); cleaned != "" {
 		d.byOrigin[cleaned] = append(d.byOrigin[cleaned], root.path)
 	}
 }
@@ -301,7 +301,7 @@ func emptyCatalog() *RemoteCatalog {
 }
 
 // sortNames returns a sorted copy and replaces nil with an empty list.
-func sortNames(values []string) []string {
+func (d *remoteDiff) sortNames(values []string) []string {
 	if values == nil {
 		return []string{}
 	}

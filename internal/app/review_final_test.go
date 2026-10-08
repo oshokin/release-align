@@ -51,7 +51,8 @@ func TestReviewArchiveRelativeDestination(t *testing.T) {
 	f := setup(t)
 	file := writeWorkspace(t, f.base, archiveProject(f, nil))
 	t.Chdir(t.TempDir())
-	opts := archiveOpts(f, file, "./out.zip", nil, nil)
+	in := &archiveOptInput{fixture: f, workspace: file, dest: "./out.zip"}
+	opts := archiveOpts(in)
 
 	_, err := ArchiveWorkspace(t.Context(), opts)
 	if err != nil {
@@ -86,7 +87,8 @@ func TestReviewArchiveRejectsOrdinarySubdirectory(t *testing.T) {
 	spec.Projects[0].Path += "/ordinary"
 	file := writeWorkspace(t, f.base, spec)
 	dest := filepath.Join(f.base, "wrong-root.zip")
-	opts := archiveOpts(f, file, dest, nil, nil)
+	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
+	opts := archiveOpts(in)
 
 	report, err := ArchiveWorkspace(t.Context(), opts)
 	if err == nil {
@@ -138,7 +140,14 @@ func TestReviewArchiveCancellationDuringLastEntry(t *testing.T) {
 	}
 	writer := zip.NewWriter(sink)
 
-	err = copyRepoZip(ctx, writer, newArchiveNames(), "group/repo", path)
+	source := &repoZipSource{
+		writer:  writer,
+		names:   newArchiveNames(),
+		project: "group/repo",
+		path:    path,
+	}
+
+	err = copyRepoZip(ctx, source)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("last entry copy returned %v after cancellation; ctx=%v", err, ctx.Err())
 	}

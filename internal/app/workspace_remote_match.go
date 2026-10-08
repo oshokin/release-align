@@ -90,7 +90,7 @@ func parseSCPRemote(raw string) (*remoteKey, bool) {
 }
 
 // remoteID is the map identity of a parsed remote. Nil has no identity.
-func remoteID(key *remoteKey) string {
+func (d *remoteDiff) remoteID(key *remoteKey) string {
 	if key == nil {
 		return ""
 	}
@@ -113,7 +113,7 @@ func defaultRemotePort(scheme, port string) bool {
 }
 
 // productionCloneURL reports a URL that production clone may use for protocol.
-func productionCloneURL(raw, protocol string) bool {
+func (j *cloneJob) productionCloneURL(raw, protocol string) bool {
 	if _, ok := parseRemote(raw); !ok {
 		return false
 	}
@@ -136,12 +136,12 @@ func productionCloneURL(raw, protocol string) bool {
 }
 
 // localCloneURL reports a filesystem path allowed only for tests.
-func localCloneURL(raw string) bool {
+func (j *cloneJob) localCloneURL(raw string) bool {
 	return filepath.IsAbs(raw) || strings.HasPrefix(strings.TrimSpace(raw), "file://")
 }
 
 // cleanLocal returns a cleaned absolute path, or an empty string.
-func cleanLocal(raw string) string {
+func (d *remoteDiff) cleanLocal(raw string) string {
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(raw, "file://")
 
@@ -153,7 +153,7 @@ func cleanLocal(raw string) string {
 }
 
 // gitlabScope reports whether path belongs to one configured GitLab group.
-func gitlabScope(projectPath string, groups []string) bool {
+func (d *remoteDiff) gitlabScope(projectPath string, groups []string) bool {
 	for _, group := range groups {
 		if projectPath == group || strings.HasPrefix(projectPath, group+"/") {
 			return true

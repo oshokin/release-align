@@ -38,9 +38,16 @@ func TestAppendKeepsGitLabSource(t *testing.T) {
 		Path:   "lamiona/search/new-indexer",
 		Groups: []string{"lamiona", "lamiona/search"},
 	}
-	next, added, err := AppendDiscoveredProjects(spec, []*ProjectSpec{discovered})
+	appended, err := AppendDiscoveredProjects(spec, []*ProjectSpec{discovered})
 
-	if err != nil || len(added) != 1 || next.GitLab == nil || next.GitLab.URL != spec.GitLab.URL {
+	if err != nil || appended == nil {
+		t.Fatal(err)
+	}
+
+	next := appended.spec
+	added := appended.added
+
+	if len(added) != 1 || next.GitLab == nil || next.GitLab.URL != spec.GitLab.URL {
 		t.Fatal(err, added, next.GitLab)
 	}
 

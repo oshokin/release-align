@@ -149,10 +149,11 @@ func TestWorkspaceYAMLRejectsImportAnchorAndPreservesComment(t *testing.T) {
 	}
 
 	next := document.spec.clone()
-	next.Projects = append(next.Projects, &ProjectSpec{
+	added := &ProjectSpec{
 		Name: "added",
 		Path: "group/added",
-	})
+	}
+	next.Projects = append(next.Projects, added)
 
 	if err = publishWorkspace(t.Context(), document, next, nil); err != nil {
 		t.Fatal(err)

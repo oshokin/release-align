@@ -65,12 +65,12 @@ func WriteCloneReport(w io.Writer, report *CloneReport) error {
 
 // publishClone appends completed new paths. It does not delete clones when the write fails.
 func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneReport, error) {
-	selected, err := cloneAdditions(items, j.report, j.spec.GitLab.CloneProtocol, j.opts.hooks)
+	selected, err := j.cloneAdditions(items, j.report, j.spec.GitLab.CloneProtocol, j.opts.hooks)
 	if err != nil {
-		return publishCloneError(j.opts, j.report, err)
+		return j.publishCloneError(j.opts, j.report, err)
 	}
 
-	j.report.Next = nextSyncCommand(j.opts)
+	j.report.Next = j.nextSyncCommand(j.opts)
 
 	if len(selected) == 0 || ctx.Err() != nil {
 		if ctx.Err() != nil {
@@ -80,17 +80,20 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 		return j.report, nil
 	}
 
-	next, added, err := AppendDiscoveredProjects(j.spec, selected)
+	appended, err := AppendDiscoveredProjects(j.spec, selected)
 	if err != nil {
-		return publishCloneError(j.opts, j.report, err)
+		return j.publishCloneError(j.opts, j.report, err)
 	}
+
+	next := appended.spec
+	added := appended.added
 
 	if len(added) == 0 {
 		return j.report, nil
 	}
 
 	if err = publishWorkspace(ctx, j.document, next, nil); err != nil {
-		return publishCloneError(j.opts, j.report, err)
+		return j.publishCloneError(j.opts, j.report, err)
 	}
 
 	j.report.Added = len(added)
@@ -99,7 +102,7 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 }
 
 // cloneAdditions builds workspace rows for completed projects that are not listed yet.
-func cloneAdditions(
+func (j *cloneJob) cloneAdditions(
 	items []*cloneItem,
 	report *CloneReport,
 	protocol string,
@@ -117,7 +120,7 @@ func cloneAdditions(
 			continue
 		}
 
-		remote, err := chooseCloneURL(item.project, protocol, hooks)
+		remote, err := j.chooseCloneURL(item.project, protocol, hooks)
 		if err != nil {
 			return nil, err
 		}
@@ -134,8 +137,12 @@ func cloneAdditions(
 }
 
 // publishCloneError keeps the downloaded directories and names the recovery command.
-func publishCloneError(opts *WorkspaceCloneOptions, report *CloneReport, err error) (*CloneReport, error) {
-	report.Recovery = recoveryCommand(opts, report.Paths)
+func (j *cloneJob) publishCloneError(
+	opts *WorkspaceCloneOptions,
+	report *CloneReport,
+	err error,
+) (*CloneReport, error) {
+	report.Recovery = j.recoveryCommand(opts, report.Paths)
 	report.Error = err.Error()
 
 	return report, fmt.Errorf("%w: %s: %s", errClonePublish, err.Error(), report.Recovery)
@@ -143,7 +150,7 @@ func publishCloneError(opts *WorkspaceCloneOptions, report *CloneReport, err err
 
 // cloneOne clones into a sibling staging directory and renames it onto the expected path.
 func (j *cloneJob) one(ctx context.Context, item *cloneItem) error {
-	target, err := containedTarget(j.base, item.path)
+	target, err := j.containedTarget(j.base, item.path)
 	if err != nil {
 		return err
 	}
@@ -152,7 +159,7 @@ func (j *cloneJob) one(ctx context.Context, item *cloneItem) error {
 		return errCloneConflict
 	}
 
-	remote, err := chooseCloneURL(item.project, j.spec.GitLab.CloneProtocol, j.opts.hooks)
+	remote, err := j.chooseCloneURL(item.project, j.spec.GitLab.CloneProtocol, j.opts.hooks)
 	if err != nil {
 		return err
 	}
@@ -194,7 +201,7 @@ func (j *cloneJob) one(ctx context.Context, item *cloneItem) error {
 }
 
 // containedTarget joins a namespace under base and rejects symlink escapes.
-func containedTarget(base, relative string) (string, error) {
+func (j *cloneJob) containedTarget(base, relative string) (string, error) {
 	if !canonicalProjectPath(relative) {
 		return "", errWorkspacePath
 	}
@@ -237,13 +244,13 @@ func containedTarget(base, relative string) (string, error) {
 }
 
 // nextSyncCommand is the alignment command after a clone.
-func nextSyncCommand(opts *WorkspaceCloneOptions) string {
-	return "release-align --workspace " + shellArg(opts.WorkspaceFile) +
+func (j *cloneJob) nextSyncCommand(opts *WorkspaceCloneOptions) string {
+	return "release-align workspace sync --workspace " + shellArg(opts.WorkspaceFile) +
 		" --base-dir " + shellArg(opts.BaseDir) + " --remote"
 }
 
 // recoveryCommand repeats clone so a later run reuses finished checkouts.
-func recoveryCommand(opts *WorkspaceCloneOptions, paths []string) string {
+func (j *cloneJob) recoveryCommand(opts *WorkspaceCloneOptions, paths []string) string {
 	var command strings.Builder
 
 	_, _ = command.WriteString("release-align workspace clone --workspace " + shellArg(opts.WorkspaceFile))

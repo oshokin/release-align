@@ -15,7 +15,7 @@ func TestReviewWorkspaceIgnoresLegacyEnvironment(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 
-	args := []string{"status", "--workspace", "missing.json", "--output", "json"}
+	args := []string{"workspace", "status", "--workspace", "missing.json", "--output", "json"}
 	code := Execute(args, &out, &errOut)
 
 	if code != exitUsage || !json.Valid(out.Bytes()) || !strings.Contains(out.String(), "missing.json") {
@@ -30,6 +30,7 @@ func TestReviewExplicitFlagOverridesInvalidEnvironment(t *testing.T) {
 	var out, errOut bytes.Buffer
 
 	args := []string{
+		"workspace", "sync",
 		"--dry-run",
 		"--base-dir",
 		t.TempDir(),
@@ -52,7 +53,7 @@ func TestReviewEnvironmentFailureHasJSONEnvelope(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 
-	args := []string{"status", "--workspace", "missing.json", "--output", "json"}
+	args := []string{"workspace", "status", "--workspace", "missing.json", "--output", "json"}
 
 	if code := Execute(args, &out, &errOut); code != exitUsage {
 		t.Fatalf("%d %s %s", code, out.String(), errOut.String())

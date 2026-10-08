@@ -34,7 +34,14 @@ func TestReviewYAMLSelectedRevisions(t *testing.T) {
 		t.Fatalf("status: %+v, %v", report, err)
 	}
 
-	opts := archiveOpts(f, file, filepath.Join(t.TempDir(), "selected.zip"), nil, []string{"chosen"})
+	in := &archiveOptInput{
+		fixture:   f,
+		workspace: file,
+		dest:      filepath.Join(t.TempDir(), "selected.zip"),
+		groups:    []string{"chosen"},
+	}
+	opts := archiveOpts(in)
+
 	if _, err = ArchiveWorkspace(t.Context(), opts); err != nil {
 		t.Fatal("archive:", err)
 	}
@@ -105,7 +112,13 @@ func TestReviewYAMLRemoteBranchAndOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = ResolveWorkspaceRevisions(t.Context(), offlineClient(f), f.base, spec, spec.Projects); err != nil {
+	lookup := &revisionLookup{
+		git:      offlineClient(f),
+		base:     f.base,
+		spec:     spec,
+		projects: spec.Projects,
+	}
+	if err = ResolveWorkspaceRevisions(t.Context(), lookup); err != nil {
 		t.Fatal(err)
 	}
 
@@ -300,10 +313,12 @@ foreign-tool:
 
 	additions := []*ProjectSpec{addition}
 
-	next, _, err := AppendDiscoveredProjects(document.spec, additions)
+	appended, err := AppendDiscoveredProjects(document.spec, additions)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	next := appended.spec
 
 	if err = publishWorkspace(t.Context(), document, next, nil); err != nil {
 		t.Fatal(err)

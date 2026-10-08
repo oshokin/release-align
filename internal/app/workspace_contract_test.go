@@ -242,9 +242,9 @@ func TestWorkspaceJSONRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var decoded WorkspaceReport
+	decoded := &WorkspaceReport{}
 
-	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil || decoded.Rows[0].Message != r.Rows[0].Message {
+	if err := json.Unmarshal(out.Bytes(), decoded); err != nil || decoded.Rows[0].Message != r.Rows[0].Message {
 		t.Fatal("JSON truncated or invalid", err)
 	}
 }

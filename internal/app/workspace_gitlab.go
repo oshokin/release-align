@@ -22,11 +22,11 @@ func (s *GitLabSource) Validate() error {
 		return errGitLabSource
 	}
 
-	if err := validateGitLabURL(s.URL); err != nil {
+	if err := s.validateGitLabURL(s.URL); err != nil {
 		return err
 	}
 
-	groups, err := normalizeGitLabGroups(s.Groups)
+	groups, err := s.normalizeGitLabGroups(s.Groups)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func (s *GitLabSource) ValidateForAPI() error {
 }
 
 // validateGitLabURL accepts an https origin and an optional port.
-func validateGitLabURL(raw string) error {
+func (s *GitLabSource) validateGitLabURL(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != cloneProtocolHTTPS || parsed.Host == "" || parsed.User != nil {
 		return errGitLabURL
@@ -79,7 +79,7 @@ func validateGitLabURL(raw string) error {
 
 // normalizeGitLabGroups keeps the first copy of each exact namespace path.
 // An empty list is stored as-is. A blank or non-canonical entry is rejected.
-func normalizeGitLabGroups(groups []string) ([]string, error) {
+func (s *GitLabSource) normalizeGitLabGroups(groups []string) ([]string, error) {
 	if len(groups) == 0 {
 		return []string{}, nil
 	}

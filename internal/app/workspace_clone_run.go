@@ -9,6 +9,7 @@ import (
 
 	"github.com/oshokin/release-align/internal/gitlab"
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 	"github.com/oshokin/release-align/internal/retry"
 )
 
@@ -34,32 +35,32 @@ func (j *cloneJob) choose(ctx context.Context, projects []*gitlab.Project) (*clo
 		}
 	}
 
-	pick, err := wantedClonePaths(j.spec, projects, j.opts, byPath)
+	pick, err := j.wantedClonePaths(j.spec, projects, j.opts, byPath)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = rejectCloneHazards(j.base, pick.paths, inventory); err != nil {
+	if err = j.rejectCloneHazards(j.base, pick.paths, inventory); err != nil {
 		return nil, err
 	}
 
 	pick.items = make([]*cloneItem, 0, len(pick.paths))
 	for _, path := range pick.paths {
-		pick.items = append(pick.items, cloneChoice(j.spec, byPath[path], path, inventory))
+		pick.items = append(pick.items, j.cloneChoice(j.spec, byPath[path], path, inventory))
 	}
 
 	return pick, nil
 }
 
 // wantedClonePaths returns the exact projects this invocation will touch.
-func wantedClonePaths(
+func (j *cloneJob) wantedClonePaths(
 	spec *WorkspaceSpec,
 	projects []*gitlab.Project,
 	opts *WorkspaceCloneOptions,
 	byPath map[string]*gitlab.Project,
 ) (*clonePick, error) {
 	if !opts.All {
-		return explicitClonePaths(spec, opts.Repos, byPath)
+		return j.explicitClonePaths(spec, opts.Repos, byPath)
 	}
 
 	paths := make([]string, 0, len(projects))
@@ -76,7 +77,7 @@ func wantedClonePaths(
 			continue
 		}
 
-		if !cloneListed(spec, project.PathWithNamespace) && !spec.hasDefault() {
+		if !j.cloneListed(spec, project.PathWithNamespace) && !spec.hasDefault() {
 			return nil, errCloneAlign
 		}
 
@@ -93,7 +94,11 @@ func wantedClonePaths(
 }
 
 // explicitClonePaths checks each --repo before any directory is created.
-func explicitClonePaths(spec *WorkspaceSpec, repos []string, byPath map[string]*gitlab.Project) (*clonePick, error) {
+func (j *cloneJob) explicitClonePaths(
+	spec *WorkspaceSpec,
+	repos []string,
+	byPath map[string]*gitlab.Project,
+) (*clonePick, error) {
 	seen := make(map[string]bool, len(repos))
 	paths := make([]string, 0, len(repos))
 
@@ -113,7 +118,7 @@ func explicitClonePaths(spec *WorkspaceSpec, repos []string, byPath map[string]*
 			return nil, fmt.Errorf("%w: %s", errCloneBranch, path)
 		}
 
-		if !cloneListed(spec, path) && !spec.hasDefault() {
+		if !j.cloneListed(spec, path) && !spec.hasDefault() {
 			return nil, fmt.Errorf("%w: %s", errCloneAlign, path)
 		}
 
@@ -128,7 +133,7 @@ func explicitClonePaths(spec *WorkspaceSpec, repos []string, byPath map[string]*
 }
 
 // rejectCloneHazards stops before clone when a target is unsafe or ambiguous.
-func rejectCloneHazards(base string, paths []string, inventory *RemoteInventory) error {
+func (j *cloneJob) rejectCloneHazards(base string, paths []string, inventory *RemoteInventory) error {
 	if inventory == nil || inventory.Catalog == nil {
 		return errRemoteInventory
 	}
@@ -157,7 +162,7 @@ func rejectCloneHazards(base string, paths []string, inventory *RemoteInventory)
 		return fmt.Errorf("%w: case check failed: %w", errCloneConflict, err)
 	}
 
-	if folding && foldedPair(paths) {
+	if folding && j.foldedPair(paths) {
 		return errCloneConflict
 	}
 
@@ -165,20 +170,25 @@ func rejectCloneHazards(base string, paths []string, inventory *RemoteInventory)
 }
 
 // cloneChoice records whether an existing matching checkout can be kept.
-func cloneChoice(spec *WorkspaceSpec, project *gitlab.Project, path string, inventory *RemoteInventory) *cloneItem {
+func (j *cloneJob) cloneChoice(
+	spec *WorkspaceSpec,
+	project *gitlab.Project,
+	path string,
+	inventory *RemoteInventory,
+) *cloneItem {
 	reuse := !slices.Contains(inventory.Catalog.NotCloned, path)
 	item := &cloneItem{
 		project: project,
 		path:    path,
 		reuse:   reuse,
-		listed:  cloneListed(spec, path),
+		listed:  j.cloneListed(spec, path),
 	}
 
 	return item
 }
 
 // cloneListed reports a project already stored in the workspace.
-func cloneListed(spec *WorkspaceSpec, path string) bool {
+func (j *cloneJob) cloneListed(spec *WorkspaceSpec, path string) bool {
 	if spec == nil {
 		return false
 	}
@@ -193,7 +203,7 @@ func cloneListed(spec *WorkspaceSpec, path string) bool {
 }
 
 // foldedPair reports two different paths that compare equal ignoring case.
-func foldedPair(paths []string) bool {
+func (j *cloneJob) foldedPair(paths []string) bool {
 	for left := range paths {
 		for right := left + 1; right < len(paths); right++ {
 			if paths[left] != paths[right] && strings.EqualFold(paths[left], paths[right]) {
@@ -214,6 +224,8 @@ func (j *cloneJob) cloneAll(ctx context.Context, items []*cloneItem) error {
 		return err
 	}
 
+	phase := logger.NewProgress("clone", len(items))
+
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
@@ -222,12 +234,16 @@ func (j *cloneJob) cloneAll(ctx context.Context, items []*cloneItem) error {
 		if item.reuse {
 			j.report.Reused++
 			j.report.Paths = append(j.report.Paths, item.path)
+			phase.Advance(ctx, item.path, "reused")
 
 			continue
 		}
 
-		if err := j.one(ctx, item); err != nil {
+		err := j.one(ctx, item)
+		if err != nil {
 			j.report.Failed++
+
+			phase.Advance(ctx, item.path, "clone failed")
 
 			if ctx.Err() != nil {
 				return context.Cause(ctx)
@@ -238,6 +254,7 @@ func (j *cloneJob) cloneAll(ctx context.Context, items []*cloneItem) error {
 
 		j.report.Cloned++
 		j.report.Paths = append(j.report.Paths, item.path)
+		phase.Advance(ctx, item.path, "cloned")
 	}
 
 	return nil
@@ -252,7 +269,7 @@ func (j *cloneJob) probe(ctx context.Context, items []*cloneItem) error {
 			continue
 		}
 
-		raw, err := chooseCloneURL(item.project, j.spec.GitLab.CloneProtocol, j.opts.hooks)
+		raw, err := j.chooseCloneURL(item.project, j.spec.GitLab.CloneProtocol, j.opts.hooks)
 		if err != nil {
 			return err
 		}
@@ -266,11 +283,16 @@ func (j *cloneJob) probe(ctx context.Context, items []*cloneItem) error {
 		return nil
 	}
 
-	return probeCloneURL(ctx, j.client, j.opts, remote)
+	return j.probeCloneURL(ctx, j.client, j.opts, remote)
 }
 
 // probeCloneURL retries a transport check without starting a clone.
-func probeCloneURL(ctx context.Context, client *gitter.Client, opts *WorkspaceCloneOptions, remote string) error {
+func (j *cloneJob) probeCloneURL(
+	ctx context.Context,
+	client *gitter.Client,
+	opts *WorkspaceCloneOptions,
+	remote string,
+) error {
 	if opts.Attempts <= 1 {
 		return client.ProbeURL(ctx, remote, opts.ProbeTimeout)
 	}
@@ -309,18 +331,18 @@ func retryableCloneProbe(err error) bool {
 }
 
 // chooseCloneURL returns the protocol URL, or a test filesystem path.
-func chooseCloneURL(project *gitlab.Project, protocol string, hooks *remoteHooks) (string, error) {
+func (j *cloneJob) chooseCloneURL(project *gitlab.Project, protocol string, hooks *remoteHooks) (string, error) {
 	raw := project.SSHURLToRepo
 	if protocol == cloneProtocolHTTPS {
 		raw = project.HTTPURLToRepo
 	}
 
 	allow := hooks != nil && hooks.allowLocalClone
-	if allow && localCloneURL(raw) {
+	if allow && j.localCloneURL(raw) {
 		return raw, nil
 	}
 
-	if !productionCloneURL(raw, protocol) {
+	if !j.productionCloneURL(raw, protocol) {
 		return "", fmt.Errorf("%w: %s", errCloneURL, project.PathWithNamespace)
 	}
 

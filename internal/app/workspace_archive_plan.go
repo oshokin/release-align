@@ -54,7 +54,7 @@ func (j *archiveJob) planOne(project *ProjectSpec) (*plannedRepo, error) {
 
 	return &plannedRepo{
 		Path:      project.Path,
-		Requested: requestedRevision(revision),
+		Requested: j.requestedRevision(revision),
 		Commit:    resolved.OID,
 		Dir:       dir,
 		Gitlinks:  links,
@@ -68,11 +68,11 @@ func (j *archiveJob) gitlinks(dir, project, oid string) ([]*archiveGitlink, erro
 		return nil, archivePhase(project, "ls-tree", err)
 	}
 
-	return parseGitlinks(out), nil
+	return j.parseGitlinks(out), nil
 }
 
 // requestedRevision is the branch, tag, or commit stored in the workspace.
-func requestedRevision(spec *RevisionSpec) string {
+func (j *archiveJob) requestedRevision(spec *RevisionSpec) string {
 	switch {
 	case spec == nil:
 		return ""
@@ -86,11 +86,11 @@ func requestedRevision(spec *RevisionSpec) string {
 }
 
 // parseGitlinks reads NUL-separated ls-tree records.
-func parseGitlinks(out string) []*archiveGitlink {
+func (j *archiveJob) parseGitlinks(out string) []*archiveGitlink {
 	var links []*archiveGitlink
 
 	for part := range strings.SplitSeq(out, "\x00") {
-		link := parseGitlink(part)
+		link := j.parseGitlink(part)
 		if link == nil {
 			continue
 		}
@@ -102,7 +102,7 @@ func parseGitlinks(out string) []*archiveGitlink {
 }
 
 // parseGitlink returns a gitlink record, or nil for every other ls-tree line.
-func parseGitlink(part string) *archiveGitlink {
+func (j *archiveJob) parseGitlink(part string) *archiveGitlink {
 	if part == "" {
 		return nil
 	}

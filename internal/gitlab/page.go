@@ -20,6 +20,8 @@ type pageResult struct {
 	projects []*Project
 	// next is the following page number. Zero means the listing ended.
 	next int
+	// pages is X-Total-Pages. Zero means the server did not say how many pages exist.
+	pages int
 }
 
 // statusError is a GitLab HTTP status without the response body.
@@ -40,6 +42,18 @@ type apiEndpoint struct {
 	path string
 }
 
+// gitLabPageNote is one listed page and the counter that records it.
+type gitLabPageNote struct {
+	// progress is the counter for this group. Nil starts a new one.
+	progress *logger.Progress
+	// group is the GitLab group path shown on the line.
+	group string
+	// page is the page number that was just listed.
+	page int
+	// result is the decoded page. Nil skips the line.
+	result *pageResult
+}
+
 // Error returns the status and request path.
 func (e *statusError) Error() string {
 	if e == nil {
@@ -55,6 +69,8 @@ func (c *Client) listGroup(ctx context.Context, group string) ([]*Project, error
 	seen := make(map[int]struct{})
 	page := 1
 	limit := c.MaxPages
+
+	var progress *logger.Progress
 
 	if limit <= 0 {
 		limit = defaultMaxPages
@@ -74,11 +90,20 @@ func (c *Client) listGroup(ctx context.Context, group string) ([]*Project, error
 			return nil, err
 		}
 
-		if err = newProjectIDs(seen, result.projects); err != nil {
+		if err = c.newProjectIDs(seen, result.projects); err != nil {
 			return nil, err
 		}
 
 		projects = append(projects, result.projects...)
+		note := &gitLabPageNote{
+			progress: progress,
+			group:    group,
+			page:     page,
+			result:   result,
+		}
+		c.noteGitLabPage(ctx, note)
+		progress = note.progress
+
 		if result.next == 0 {
 			return projects, nil
 		}
@@ -200,7 +225,7 @@ func (c *Client) readPage(resp *http.Response) (*pageResult, error) {
 		return nil, errGitLabIncomplete
 	}
 
-	next, err := nextPage(resp.Header, len(decoded), pageNumber(resp.Request))
+	next, err := c.nextPage(resp.Header, len(decoded), c.pageNumber(resp.Request))
 	if err != nil {
 		return nil, err
 	}
@@ -208,13 +233,14 @@ func (c *Client) readPage(resp *http.Response) (*pageResult, error) {
 	result := &pageResult{
 		projects: decoded,
 		next:     next,
+		pages:    c.totalPages(resp.Header),
 	}
 
 	return result, nil
 }
 
 // nextPage honors an empty X-Next-Page as the end and a missing header as unknown.
-func nextPage(header http.Header, count, page int) (int, error) {
+func (c *Client) nextPage(header http.Header, count, page int) (int, error) {
 	values := header.Values("X-Next-Page")
 	if len(values) > 0 {
 		if values[0] == "" {
@@ -237,7 +263,7 @@ func nextPage(header http.Header, count, page int) (int, error) {
 }
 
 // pageNumber reads the page query this response answered.
-func pageNumber(req *http.Request) int {
+func (c *Client) pageNumber(req *http.Request) int {
 	if req == nil || req.URL == nil {
 		return 1
 	}
@@ -250,9 +276,37 @@ func pageNumber(req *http.Request) int {
 	return page
 }
 
+// totalPages reads X-Total-Pages. An absent or unusable header means the size is unknown.
+func (c *Client) totalPages(header http.Header) int {
+	pages, err := strconv.Atoi(header.Get("X-Total-Pages"))
+	if err != nil || pages < 1 {
+		return 0
+	}
+
+	return pages
+}
+
+// noteGitLabPage records one listed page. The first page learns the total when the server sends it.
+func (c *Client) noteGitLabPage(ctx context.Context, note *gitLabPageNote) {
+	if note == nil || note.result == nil {
+		return
+	}
+
+	if note.progress == nil {
+		total := note.result.pages
+		if total < note.page {
+			total = 0
+		}
+
+		note.progress = logger.NewProgress("gitlab", total)
+	}
+
+	note.progress.Advance(ctx, note.group, "page listed")
+}
+
 // rateLimit stops when Retry-After is longer than the remaining catalog budget.
 func (c *Client) rateLimit(ctx context.Context, resp *http.Response, path string) error {
-	wait := retryAfter(resp.Header.Get("Retry-After"))
+	wait := c.retryAfter(resp.Header.Get("Retry-After"))
 	deadline, ok := ctx.Deadline()
 
 	if ok && time.Until(deadline) < wait {
@@ -269,7 +323,7 @@ func (c *Client) rateLimit(ctx context.Context, resp *http.Response, path string
 }
 
 // newProjectIDs rejects a non-empty page that repeats only IDs already seen in this group.
-func newProjectIDs(seen map[int]struct{}, projects []*Project) error {
+func (c *Client) newProjectIDs(seen map[int]struct{}, projects []*Project) error {
 	fresh := 0
 
 	for _, project := range projects {
@@ -293,7 +347,7 @@ func newProjectIDs(seen map[int]struct{}, projects []*Project) error {
 }
 
 // retryAfter parses a delay. An unusable value falls back to one second.
-func retryAfter(raw string) time.Duration {
+func (c *Client) retryAfter(raw string) time.Duration {
 	if raw == "" {
 		return time.Second
 	}

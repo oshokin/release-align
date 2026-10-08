@@ -62,7 +62,7 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	out.Reset()
 	errOut.Reset()
 
-	statusArgs := []string{"status", "--base-dir", base, "--workspace", file}
+	statusArgs := []string{"workspace", "status", "--base-dir", base, "--workspace", file}
 	if code := Execute(statusArgs, &out, &errOut); code != exitOK || strings.Contains(out.String(), "new-indexer") {
 		t.Fatalf("status %d\n%s\n%s", code, out.String(), errOut.String())
 	}
@@ -83,6 +83,7 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 	errOut.Reset()
 
 	syncArgs := []string{
+		"workspace", "sync",
 		"--base-dir", base,
 		"--workspace", file,
 		"--group", "lamiona/search",

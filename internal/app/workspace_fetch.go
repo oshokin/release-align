@@ -23,10 +23,12 @@ func (r *runner) fetchWorkspace(ctx context.Context, cancel context.CancelCauseF
 		return nil
 	}
 
+	r.beginPhase("fetch", len(repos))
+
 	outcomes := r.fetchRepos(ctx, cancel, repos)
 
 	for _, outcome := range outcomes {
-		if outcome.err == nil {
+		if outcome == nil || outcome.err == nil {
 			continue
 		}
 
@@ -55,7 +57,7 @@ func (r *runner) fetchWorkspace(ctx context.Context, cancel context.CancelCauseF
 }
 
 // fetchRepos fetches repositories in parallel, one at a time per common directory.
-func (r *runner) fetchRepos(ctx context.Context, cancel context.CancelCauseFunc, repos []*repository) []fetchOutcome {
+func (r *runner) fetchRepos(ctx context.Context, cancel context.CancelCauseFunc, repos []*repository) []*fetchOutcome {
 	locks := map[string]*sync.Mutex{}
 
 	for _, repo := range repos {
@@ -65,7 +67,7 @@ func (r *runner) fetchRepos(ctx context.Context, cancel context.CancelCauseFunc,
 	}
 
 	jobs := make(chan *repository)
-	results := make(chan fetchOutcome, len(repos))
+	results := make(chan *fetchOutcome, len(repos))
 
 	var recoveryMu sync.Mutex
 
@@ -108,13 +110,28 @@ func (r *runner) fetchRepos(ctx context.Context, cancel context.CancelCauseFunc,
 		close(results)
 	}()
 
-	outcomes := make([]fetchOutcome, 0, len(repos))
+	outcomes := make([]*fetchOutcome, 0, len(repos))
 
 	for outcome := range results {
 		outcomes = append(outcomes, outcome)
+		r.noteFetch(ctx, outcome)
 	}
 
 	return outcomes
+}
+
+// noteFetch records one finished fetch in the phase counter.
+func (r *runner) noteFetch(ctx context.Context, outcome *fetchOutcome) {
+	if outcome == nil || outcome.repo == nil {
+		return
+	}
+
+	message := "fetched"
+	if outcome.err != nil {
+		message = "fetch failed"
+	}
+
+	r.step(ctx, outcome.repo.relative, message)
 }
 
 // fetchLocked fetches one repository while holding its common-directory lock.
@@ -123,29 +140,35 @@ func (r *runner) fetchLocked(
 	repo *repository,
 	lock *sync.Mutex,
 	recoverNetwork func(*repository) error,
-) fetchOutcome {
+) *fetchOutcome {
 	lock.Lock()
 	defer lock.Unlock()
 
 	if ctx.Err() != nil {
-		return fetchOutcome{
+		stopped := &fetchOutcome{
 			repo: repo,
 			err:  context.Cause(ctx),
 		}
+
+		return stopped
 	}
 
 	fetchErr := r.fetch(ctx, repo, recoverNetwork)
 	if fetchErr == nil {
-		return fetchOutcome{
+		fetched := &fetchOutcome{
 			repo: repo,
 		}
+
+		return fetched
 	}
 
 	if ctx.Err() == nil {
-		return fetchOutcome{
+		failed := &fetchOutcome{
 			repo: repo,
 			err:  r.gitTextError(fetchErr.Error()),
 		}
+
+		return failed
 	}
 
 	err := r.canceledFetchError(ctx)
@@ -153,10 +176,12 @@ func (r *runner) fetchLocked(
 		err = r.gitTextError(fetchErr.Error())
 	}
 
-	return fetchOutcome{
+	canceled := &fetchOutcome{
 		repo: repo,
 		err:  err,
 	}
+
+	return canceled
 }
 
 // fetch updates origin once, and retries a single time after the remote is confirmed reachable.

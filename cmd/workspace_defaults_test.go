@@ -28,7 +28,7 @@ func TestStatusRejectsEmptyBaseDirWhenTheFileOmitsIt(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 
-	code := Execute([]string{"status", "--workspace", file}, &out, &errOut)
+	code := Execute([]string{"workspace", "status", "--workspace", file}, &out, &errOut)
 	if code != exitUsage || !strings.Contains(errOut.String(), "BASE_DIR") {
 		t.Fatalf("%d %s %s", code, out.String(), errOut.String())
 	}
@@ -69,14 +69,14 @@ func TestCommandsUseSavedBaseDirAndDefaultWorkspace(t *testing.T) {
 	out.Reset()
 	errOut.Reset()
 
-	if code := Execute([]string{"status"}, out, errOut); code != exitOK {
+	if code := Execute([]string{"workspace", "status"}, out, errOut); code != exitOK {
 		t.Fatalf("status %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 
 	out.Reset()
 	errOut.Reset()
 
-	if code := Execute([]string{"--dry-run"}, out, errOut); code != exitOK {
+	if code := Execute([]string{"workspace", "sync", "--dry-run"}, out, errOut); code != exitOK {
 		t.Fatalf("sync %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 
