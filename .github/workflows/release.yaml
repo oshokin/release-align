@@ -26,17 +26,35 @@ env:
 permissions:
   contents: write
 
+concurrency:
+  group: release-align-release
+  cancel-in-progress: false
+
 jobs:
+  # A manual release runs the same tests. A workflow_run release already passed them.
+  test-manual:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/build-and-test.yaml
+
   release:
+    needs: [test-manual]
     runs-on: ubuntu-latest
-    # Only run if the Build and Test workflow succeeded.
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # workflow_run checks out the CI commit, not the later default-branch tip.
+    # A pull_request run, another repository, or a failed CI does not publish.
+    if: >-
+      always() &&
+      (needs.test-manual.result == 'success' || needs.test-manual.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     steps:
-      # Check out repository with full Git history for version analysis.
+      # Check out the commit that passed CI, with full history for version analysis.
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -52,10 +70,27 @@ jobs:
           go env GOTOOLCHAIN
           go env GOVERSION
 
+      # Skip a run whose commit is no longer the tip of its release branch.
+      - name: Require the release tip
+        id: tip
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          RELEASE_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          tip="$(git rev-parse "origin/${RELEASE_BRANCH}")"
+          if [ "$tip" != "$RELEASE_SHA" ]; then
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "SHA ${RELEASE_SHA} is not the tip of ${RELEASE_BRANCH}."
+            exit 0
+          fi
+          echo "current=true" >> "$GITHUB_OUTPUT"
+
       # Analyze commit messages since last tag to determine version bump.
       # Uses the semver_next.sh script to implement semantic versioning logic.
       - name: Compute next version
         id: bump
+        if: steps.tip.outputs.current == 'true'
         run: |
           # Ensure we have the absolute latest tags for accurate version calculation.
           git fetch --tags origin
@@ -64,14 +99,14 @@ jobs:
       # Skip release only when semver script explicitly disables release.
       # Note: semver_next intentionally allows re-release/tag-push flow even with no new commits.
       - name: Skip if no commits
-        if: steps.bump.outputs.has_release != '1'
+        if: steps.tip.outputs.current == 'true' && steps.bump.outputs.has_release != '1'
         run: |
           echo "No commits found since last tag - skipping release."
 
       # Configure Git user for automated tag creation.
       # Uses GitHub Actions bot identity for audit trail.
       - name: Configure git
-        if: steps.bump.outputs.has_release == '1'
+        if: steps.tip.outputs.current == 'true' && steps.bump.outputs.has_release == '1'
         run: |
           git config user.name "${{ env.GIT_BOT_NAME }}"
           git config user.email "${{ env.GIT_BOT_EMAIL }}"
@@ -79,25 +114,25 @@ jobs:
       # Create and push the new version tag to trigger GoReleaser.
       # Tag creation must happen before GoReleaser runs.
       - name: Create and push tag
-        if: steps.bump.outputs.has_release == '1'
+        id: tag
+        if: steps.tip.outputs.current == 'true' && steps.bump.outputs.has_release == '1'
+        env:
+          NEXT_TAG: ${{ steps.bump.outputs.next_tag }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          # Fetch latest tags to ensure we have the most recent state.
           git fetch --tags origin
-
-          # Re-check if our calculated tag already exists (race condition protection).
-          if git rev-parse "${{ steps.bump.outputs.next_tag }}" >/dev/null 2>&1; then
-            echo "Tag ${{ steps.bump.outputs.next_tag }} already exists! Another release beat us to it."
-            echo "This is expected behavior with concurrent PRs. Skipping release."
-            exit 0
+          if git rev-parse "$NEXT_TAG" >/dev/null 2>&1; then
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${NEXT_TAG} already exists. This release stops."
+            exit 1
           fi
+          git tag "$NEXT_TAG" "$TARGET_SHA"
+          git push origin "$NEXT_TAG"
+          echo "created=true" >> "$GITHUB_OUTPUT"
 
-          # Create and push tag atomically.
-          git tag "${{ steps.bump.outputs.next_tag }}"
-          git push origin "${{ steps.bump.outputs.next_tag }}"
-
-      # Run GoReleaser to build binaries and create GitHub release.
+      # Run GoReleaser only after this run created the tag.
       - name: GoReleaser
-        if: steps.bump.outputs.has_release == '1'
+        if: steps.bump.outputs.has_release == '1' && steps.tag.outputs.created == 'true'
         uses: goreleaser/goreleaser-action@v7
         with:
           version: ${{ env.GORELEASER_VERSION }}

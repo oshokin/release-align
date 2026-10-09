@@ -234,7 +234,7 @@ func TestRefreshRemoteReadsTheNonArchivedCatalog(t *testing.T) {
 	}
 
 	result, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
-	if err != nil || archived != "false" || !result.Written || !samePaths(result.Removed, []string{"group/gone"}) {
+	if err != nil || archived != "" || !result.Written || !samePaths(result.Removed, []string{"group/gone"}) {
 		t.Fatal(archived, result, err)
 	}
 

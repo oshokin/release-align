@@ -73,8 +73,12 @@ type WorkspaceReport struct {
 	Scope string `json:"scope,omitempty"`
 	// Coverage reports that every selected project has a row.
 	Coverage bool `json:"coverage_complete"`
-	// Ready reports that every selected project matches.
+	// Ready reports that every active selected project matches.
 	Ready bool `json:"ready"`
+	// ActionableCount is the selected projects that are not archived.
+	ActionableCount int `json:"actionable_count"`
+	// SkippedArchivedCount is the selected projects excluded by an archive mark.
+	SkippedArchivedCount int `json:"skipped_archived_count"`
 	// Errors lists failures of this run. It is empty, not null, when there are none.
 	Errors []string `json:"errors"`
 	// Rows are the selected projects in workspace order.
@@ -185,6 +189,8 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 
 	seen := make(map[string]struct{}, len(r.Rows))
 	allReady := true
+	actionable := 0
+	skippedArchived := 0
 
 	for _, row := range r.Rows {
 		if row == nil {
@@ -199,8 +205,11 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 		}
 
 		seen[row.Path] = struct{}{}
-		row.Ready = !r.DryRun && row.MatchesContract()
-		allReady = allReady && row.Ready
+
+		rowActionable, rowSkipped, rowReady := r.scoreRow(row)
+		actionable += rowActionable
+		skippedArchived += rowSkipped
+		allReady = allReady && rowReady
 	}
 
 	for _, p := range expected {
@@ -219,7 +228,9 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 	slices.SortFunc(r.Rows, func(a, b *WorkspaceRow) int { return strings.Compare(a.Path, b.Path) })
 	// Coverage means every expected item has a row, not every repo exists on disk.
 	r.Coverage = len(r.Rows) == len(expected)
-	r.Ready = len(expected) > 0 && r.Coverage && allReady && !r.DryRun && len(r.Errors) == 0
+	r.ActionableCount = actionable
+	r.SkippedArchivedCount = skippedArchived
+	r.Ready = actionable > 0 && r.Coverage && allReady && !r.DryRun && len(r.Errors) == 0
 
 	return nil
 }
@@ -234,4 +245,17 @@ func WriteWorkspaceReport(dst io.Writer, report *WorkspaceReport) error {
 	enc.SetIndent("", "  ")
 
 	return enc.Encode(report)
+}
+
+// scoreRow counts one archived skip or one active row.
+func (r *WorkspaceReport) scoreRow(row *WorkspaceRow) (int, int, bool) {
+	if row.ReasonCode == reasonArchived {
+		row.Ready = false
+
+		return 0, 1, true
+	}
+
+	row.Ready = !r.DryRun && row.MatchesContract()
+
+	return 1, 0, row.Ready
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -167,7 +168,7 @@ func TestSyncRemoteFailureStaysHonest(t *testing.T) {
 	f.cfg.RetryDelay = time.Millisecond
 
 	report, err := runWorkspace(t, f, spec, ModeSync)
-	if !report.Ready || !errors.Is(err, errRemoteAfterSync) || calls != 3 {
+	if report.Ready || !errors.Is(err, errRemoteInventory) || calls != 3 {
 		t.Fatalf("ready %v calls %d err %v", report.Ready, calls, err)
 	}
 
@@ -186,8 +187,15 @@ func TestRemoteSkipsAPIAfterNetworkFailure(t *testing.T) {
 
 	var calls int
 
-	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	body := `[{"id":1,"path_with_namespace":"group/repo with spaces","archived":false,` +
+		`"ssh_url_to_repo":"ssh://git@127.0.0.1:1/group/repo.git",` +
+		`"http_url_to_repo":"https://127.0.0.1/group/repo.git","default_branch":"master"}]`
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
+
+		if _, writeErr := io.WriteString(w, body); writeErr != nil {
+			t.Error(writeErr)
+		}
 	}))
 	t.Cleanup(server.Close)
 
@@ -205,7 +213,9 @@ func TestRemoteSkipsAPIAfterNetworkFailure(t *testing.T) {
 	f.cfg.ProbeTimeout = 200 * time.Millisecond
 
 	report, err := runWorkspace(t, f, spec, ModeSync)
-	if err == nil || calls != 0 || report.RemoteInventory.Reason != remoteReasonNetwork {
+	checked := report.RemoteInventory != nil && report.RemoteInventory.Status == remoteStatusChecked
+
+	if err == nil || calls != 1 || !checked {
 		t.Fatalf("calls %d reason %v err %v", calls, report.RemoteInventory, err)
 	}
 }
@@ -269,7 +279,7 @@ func TestStatusWithoutRemoteDoesNotCallAPI(t *testing.T) {
 	}
 	report, err := runWorkspace(t, f, spec, ModeStatus)
 
-	if err != nil || calls != 0 || !strings.Contains(report.RemoteInventory.Error, "use --remote") {
+	if err != nil || calls != 0 || !strings.Contains(report.RemoteInventory.Error, "using workspace flags") {
 		t.Fatal(err, calls, report.RemoteInventory)
 	}
 }

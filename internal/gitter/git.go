@@ -124,7 +124,7 @@ func (c *Client) ProbeURL(ctx context.Context, remote string, timeout time.Durat
 // Clone copies remote into dir with a normal checkout of the remote default branch.
 // dir's parent must exist. Submodules are not cloned.
 func (c *Client) Clone(ctx context.Context, remote, dir string, timeout time.Duration) error {
-	_, err := c.Run(ctx, "", timeout, "clone", "--no-recurse-submodules", "--", remote, dir)
+	_, err := c.Run(ctx, "", timeout, "clone", "--origin", "origin", "--no-recurse-submodules", "--", remote, dir)
 	return err
 }
 

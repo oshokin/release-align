@@ -42,6 +42,10 @@ type remoteCheck struct {
 	report *WorkspaceReport
 	// runErr is the error from the local operation, if one happened.
 	runErr error
+	// projects is the catalog read before checkout. Nil means this call may list.
+	projects []*gitlab.Project
+	// listed reports that projects was already read for this run.
+	listed bool
 }
 
 // projectCompare is one complete catalog matched against disk and the workspace file.
@@ -69,8 +73,8 @@ const (
 	remoteReasonCancel = "canceled"
 	// remoteReasonNetwork means an earlier network failure blocked another listing.
 	remoteReasonNetwork = "prior_network_failure"
-	// remoteNotCheckedMsg tells the user how to request a listing.
-	remoteNotCheckedMsg = "GitLab inventory: not checked; use --remote"
+	// remoteNotCheckedMsg tells the user the run used saved archive marks.
+	remoteNotCheckedMsg = "GitLab lifecycle: not checked; using workspace flags"
 )
 
 // PrepareRemote rejects a requested catalog before checkout when the configuration is unusable.
@@ -125,20 +129,25 @@ func attachRemote(ctx context.Context, check *remoteCheck) (*WorkspaceReport, er
 		return report, preferErr(runErr, context.Cause(ctx))
 	}
 
-	if remoteNetworkFailed(report, runErr) {
+	if remoteNetworkFailed(report, runErr) && !check.listed {
 		note := "GitLab inventory: not checked because the host was already unreachable"
 		report.RemoteInventory = remoteNote(spec, remoteStatusSkipped, remoteReasonNetwork, note)
 
 		return report, runErr
 	}
 
-	if cfg.progress != nil {
-		_, _ = fmt.Fprintln(cfg.progress, "Checking GitLab inventory...")
-	}
+	projects := check.projects
+	if !check.listed {
+		if cfg.progress != nil {
+			_, _ = fmt.Fprintln(cfg.progress, "Checking GitLab inventory...")
+		}
 
-	projects, err := listRemoteProjects(ctx, cfg, spec.GitLab)
-	if err != nil {
-		return failRemote(spec, report, runErr, err)
+		var listErr error
+
+		projects, listErr = listRemoteProjects(ctx, cfg, spec.GitLab)
+		if listErr != nil {
+			return failRemote(spec, report, runErr, listErr)
+		}
 	}
 
 	query := &projectCompare{
@@ -157,6 +166,32 @@ func attachRemote(ctx context.Context, check *remoteCheck) (*WorkspaceReport, er
 	report.RemoteInventory = inventory
 
 	return report, runErr
+}
+
+// noteServerArchived marks listed projects that GitLab currently reports as archived.
+// A saved archive mark is left in place when the server says the project is active.
+func noteServerArchived(spec *WorkspaceSpec, projects []*gitlab.Project) {
+	if spec == nil {
+		return
+	}
+
+	byPath := make(map[string]*gitlab.Project, len(projects))
+	for _, project := range projects {
+		if project != nil {
+			byPath[project.PathWithNamespace] = project
+		}
+	}
+
+	for _, project := range spec.Projects {
+		if project == nil || project.Archived {
+			continue
+		}
+
+		server := byPath[project.Path]
+		if server != nil && server.Archived {
+			project.Archived = true
+		}
+	}
 }
 
 // listRemoteProjects reads every configured group once.

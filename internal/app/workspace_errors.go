@@ -19,6 +19,8 @@ const (
 	reasonNotRepositoryRoot = "not_repository_root"
 	// reasonMissingOrigin means the repository has no usable origin.
 	reasonMissingOrigin = "missing_origin"
+	// reasonRemoteMismatch means origin is a different repository than the workspace URL.
+	reasonRemoteMismatch = "remote_mismatch"
 	// reasonMissingTarget means the requested revision does not exist locally.
 	reasonMissingTarget = "missing_target"
 	// reasonDirty means uncommitted changes block a switch.
@@ -52,6 +54,10 @@ const (
 
 	// outcomeBlocked means the repository was left unchanged.
 	outcomeBlocked = "blocked"
+	// outcomeSkipped means the repository was left out of alignment on purpose.
+	outcomeSkipped = "skipped"
+	// reasonArchived means a saved or freshly listed GitLab archive mark excluded the project.
+	reasonArchived = "archived"
 	// outcomeUpdated means the repository was switched.
 	outcomeUpdated = "updated"
 	// outcomeObserved means status read the worktree.
@@ -131,7 +137,9 @@ var (
 	// errWorkspaceRevisionType means a revision was not a string.
 	errWorkspaceRevisionType = errors.New("revision must be a string or a full hexadecimal commit id")
 	// errWorkspaceRevisionShort means a short revision is not one local branch or tag.
-	errWorkspaceRevisionShort = errors.New("write refs/heads/<name>, refs/tags/<name>, or a full commit")
+	errWorkspaceRevisionShort = errors.New(
+		"short revision is not in local refs; use refs/heads/<name> or refs/tags/<name>",
+	)
 	// errWorkspaceExtension means a new workspace file is not .yml or .yaml.
 	errWorkspaceExtension = errors.New("workspace file must use .yml or .yaml")
 	// errWorkspaceInactive means a requested project or group is disabled by group-filter.
@@ -196,6 +204,8 @@ var (
 	errCloneSelection = errors.New("workspace clone requires --repo or --all, and not both")
 	// errCloneUnknown means a requested path is not in the GitLab listing.
 	errCloneUnknown = errors.New("repository is not in the GitLab inventory")
+	// errArchivedOptIn means an archived project was named without --include-archived.
+	errArchivedOptIn = errors.New("archived project requires --include-archived")
 	// errCloneConflict means the target path is occupied or ambiguous.
 	errCloneConflict = errors.New("target path conflicts with another repository")
 	// errCloneBranch means an explicitly requested project has no default branch.
@@ -218,6 +228,8 @@ var (
 	errArchiveFailed = errors.New("archive was not published")
 	// errArchiveEntry means a ZIP entry is unsafe or collides with another entry.
 	errArchiveEntry = errors.New("git archive entry is not a safe relative path")
+	// errArchiveIdentity means the checkout origin is not the workspace URL.
+	errArchiveIdentity = errors.New("origin does not match the workspace URL")
 )
 
 // gitTextError wraps a Git message as a workspace runtime error.

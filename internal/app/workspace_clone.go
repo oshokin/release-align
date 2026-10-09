@@ -21,6 +21,8 @@ type WorkspaceCloneOptions struct {
 	Repos []string
 	// All selects every project in the saved GitLab scope.
 	All bool
+	// IncludeArchived downloads archived projects. It does not allow sync to update them.
+	IncludeArchived bool
 	// Attempts is the total number of transport probes, not extra retries.
 	Attempts int
 	// ProbeTimeout limits one git ls-remote attempt.

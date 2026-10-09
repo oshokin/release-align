@@ -118,6 +118,17 @@ func (j *cloneJob) wantedClonePaths(query *clonePathQuery) (*clonePick, error) {
 			continue
 		}
 
+		accepted, acceptErr := acceptArchivedClone(project, opts.IncludeArchived, false)
+		if acceptErr != nil {
+			return nil, acceptErr
+		}
+
+		if !accepted {
+			skipped++
+
+			continue
+		}
+
 		if !j.cloneListed(spec, project.PathWithNamespace) && !spec.hasDefault() {
 			return nil, errCloneAlign
 		}
@@ -153,6 +164,11 @@ func (j *cloneJob) explicitClonePaths(
 
 		if project == nil {
 			return nil, fmt.Errorf("%w: %s", errCloneUnknown, path)
+		}
+
+		include := j.opts != nil && j.opts.IncludeArchived
+		if _, acceptErr := acceptArchivedClone(project, include, true); acceptErr != nil {
+			return nil, acceptErr
 		}
 
 		if project.DefaultBranch == "" {
@@ -369,6 +385,24 @@ func retryableCloneProbe(err error) bool {
 	var timeout *probeTimeoutError
 
 	return errors.As(err, &timeout) || gitter.NetworkError(err)
+}
+
+// acceptArchivedClone allows an archived project only when the flag asks for it.
+// --all skips the rest. An explicit --repo returns a usage error.
+func acceptArchivedClone(project *gitlab.Project, include, explicit bool) (bool, error) {
+	if project == nil {
+		return false, errCloneUnknown
+	}
+
+	if !project.Archived || include {
+		return true, nil
+	}
+
+	if explicit {
+		return false, fmt.Errorf("%w: %s", errArchivedOptIn, project.PathWithNamespace)
+	}
+
+	return false, nil
 }
 
 // chooseCloneURL returns the protocol URL, or a test filesystem path.

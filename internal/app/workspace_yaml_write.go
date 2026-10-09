@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -218,7 +219,21 @@ func projectNode(project *ProjectSpec) *yaml.Node {
 		node.Content = append(node.Content, strNode("clone-depth", false), intNode(*project.CloneDepth))
 	}
 
+	if project.Archived {
+		node.Content = append(node.Content, strNode(keyUserdata, false), archivedUserdata())
+	}
+
 	return node
+}
+
+// archivedUserdata is the west userdata block that records a GitLab archive mark.
+func archivedUserdata() *yaml.Node {
+	flag := mappingNode()
+	flag.Content = append(flag.Content, strNode("archived", false), boolNode(true))
+	block := mappingNode()
+	block.Content = append(block.Content, strNode(keyReleaseAlign, false), flag)
+
+	return block
 }
 
 // gitlabNode writes the discovery scope.
@@ -312,6 +327,101 @@ func dropAbsentProjects(root *yaml.Node, spec *WorkspaceSpec) error {
 	projects.Content = kept
 
 	return nil
+}
+
+// writeArchiveMarks updates userdata.release-align.archived for projects the catalog returned.
+func writeArchiveMarks(root *yaml.Node, byPath map[string]bool) (bool, error) {
+	sequence, err := projectSequence(root)
+	if err != nil {
+		return false, err
+	}
+
+	changed := false
+
+	for _, item := range sequence.Content {
+		identity, identityErr := projectIdentity(item)
+		if identityErr != nil {
+			return false, identityErr
+		}
+
+		archived, found := byPath[identity.path]
+		if !found {
+			continue
+		}
+
+		updated, flagErr := setArchivedFlag(item, archived)
+		if flagErr != nil {
+			return false, flagErr
+		}
+
+		changed = changed || updated
+	}
+
+	return changed, nil
+}
+
+// setArchivedFlag writes or clears one archive mark without replacing other userdata.
+func setArchivedFlag(node *yaml.Node, archived bool) (bool, error) {
+	user, ok := mappingValue(node, keyUserdata)
+	if !ok {
+		if !archived {
+			return false, nil
+		}
+
+		node.Content = append(node.Content, strNode(keyUserdata, false), archivedUserdata())
+
+		return true, nil
+	}
+
+	if user.Kind != yaml.MappingNode {
+		return false, fmt.Errorf("%w: userdata", errWorkspaceField)
+	}
+
+	block, ok := mappingValue(user, keyReleaseAlign)
+	if !ok {
+		if !archived {
+			return false, nil
+		}
+
+		flag := mappingNode()
+		flag.Content = append(flag.Content, strNode("archived", false), boolNode(true))
+		user.Content = append(user.Content, strNode(keyReleaseAlign, false), flag)
+
+		return true, nil
+	}
+
+	if block.Kind != yaml.MappingNode {
+		return false, fmt.Errorf("%w: userdata.release-align", errWorkspaceField)
+	}
+
+	flag, ok := mappingValue(block, "archived")
+	if !ok {
+		if !archived {
+			return false, nil
+		}
+
+		block.Content = append(block.Content, strNode("archived", false), boolNode(true))
+
+		return true, nil
+	}
+
+	if flag.Kind != yaml.ScalarNode || flag.ShortTag() != yamlTagBool {
+		return false, fmt.Errorf("%w: userdata.release-align.archived", errWorkspaceField)
+	}
+
+	want := yamlBoolFalse
+	if archived {
+		want = yamlBoolTrue
+	}
+
+	if flag.Value == want {
+		return false, nil
+	}
+
+	flag.Tag = yamlTagBool
+	flag.Value = want
+
+	return true, nil
 }
 
 // projectSequence returns the manifest project list.
@@ -448,6 +558,22 @@ func legacyYAMLScalar(value string) bool {
 	default:
 		return strings.Contains(value, ":") && value != "" && value[0] >= '0' && value[0] <= '9'
 	}
+}
+
+// boolNode is a boolean scalar.
+func boolNode(value bool) *yaml.Node {
+	text := yamlBoolFalse
+	if value {
+		text = yamlBoolTrue
+	}
+
+	node := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Tag:   yamlTagBool,
+		Value: text,
+	}
+
+	return node
 }
 
 // intNode is an integer scalar.

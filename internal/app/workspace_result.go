@@ -69,6 +69,7 @@ func workspaceUsage(err error) bool {
 		errors.Is(err, errRemoteToken) ||
 		errors.Is(err, errCloneSelection) ||
 		errors.Is(err, errCloneUnknown) ||
+		errors.Is(err, errArchivedOptIn) ||
 		errors.Is(err, errCloneBranch) ||
 		errors.Is(err, errCloneAlign) ||
 		errors.Is(err, errTimeoutRange) ||
@@ -97,6 +98,11 @@ func workspaceResultError(report *WorkspaceReport) error {
 	}
 
 	if !report.Ready {
+		if report.ActionableCount == 0 && report.SkippedArchivedCount > 0 &&
+			report.SkippedArchivedCount == report.ExpectedCount {
+			return nil
+		}
+
 		return errWorkspaceNotReady
 	}
 
@@ -118,9 +124,11 @@ func reportHasRuntime(report *WorkspaceReport) bool {
 // reportBlocked reports a row that is not ready.
 func reportBlocked(report *WorkspaceReport) bool {
 	for _, row := range report.Rows {
-		if row.ReasonCode != "" {
-			return true
+		if row.Outcome == outcomeSkipped || row.ReasonCode == "" {
+			continue
 		}
+
+		return true
 	}
 
 	return false

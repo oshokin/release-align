@@ -89,6 +89,10 @@ const (
 	yamlTagBool = "!!bool"
 	// yamlTagFloat is a YAML floating-point scalar.
 	yamlTagFloat = "!!float"
+	// yamlBoolTrue is the canonical YAML boolean true.
+	yamlBoolTrue = "true"
+	// yamlBoolFalse is the canonical YAML boolean false.
+	yamlBoolFalse = "false"
 	// keyName is a west project name.
 	keyName = "name"
 	// keyRemote is a west remote name.
@@ -153,8 +157,12 @@ func decodeWorkspace(src io.Reader) (*decodedWorkspace, error) {
 	return decodeWorkspaceBytes(data)
 }
 
-// decodeWorkspaceBytes rejects JSON, extra documents, and unsupported YAML.
+// decodeWorkspaceBytes rejects JSON, extra documents, oversized input, and unsupported YAML.
 func decodeWorkspaceBytes(data []byte) (*decodedWorkspace, error) {
+	if len(data) > workspaceMaxBytes {
+		return nil, errWorkspaceSize
+	}
+
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || trimmed[0] == '{' || trimmed[0] == '[' {
 		return nil, errWorkspaceYAML
@@ -369,10 +377,12 @@ func rejectManifestVersion(manifest *yaml.Node) error {
 		return nil
 	}
 
-	value, err := scalarString(node)
-	if err != nil {
-		return err
+	if node.Kind != yaml.ScalarNode ||
+		(node.ShortTag() != yamlTagString && node.ShortTag() != yamlTagInt && node.ShortTag() != yamlTagFloat) {
+		return errWorkspaceField
 	}
+
+	value := node.Value
 
 	switch strings.TrimSuffix(value, ".0") {
 	case "0.7", "0.8", "0.10", "0.12", "0.13", "1", "1.0", "1.2":
@@ -594,6 +604,11 @@ func decodeProject(node *yaml.Node, bases map[string]string, defaultRemote strin
 		cloneDepth = depth.depth
 	}
 
+	archived, err := decodeArchived(node)
+	if err != nil {
+		return nil, err
+	}
+
 	project := &ProjectSpec{
 		Name:          name,
 		Path:          path,
@@ -602,9 +617,34 @@ func decodeProject(node *yaml.Node, bases map[string]string, defaultRemote strin
 		Revision:      revision,
 		shortRevision: short,
 		CloneDepth:    cloneDepth,
+		Archived:      archived,
 	}
 
 	return project, nil
+}
+
+// decodeArchived reads userdata.release-align.archived. Other userdata stays opaque.
+func decodeArchived(node *yaml.Node) (bool, error) {
+	value, ok := mappingValue(node, keyUserdata)
+	if !ok || value.Kind != yaml.MappingNode {
+		return false, nil
+	}
+
+	block, ok := mappingValue(value, keyReleaseAlign)
+	if !ok || block.Kind != yaml.MappingNode {
+		return false, nil
+	}
+
+	flag, ok := mappingValue(block, "archived")
+	if !ok {
+		return false, nil
+	}
+
+	if flag.Kind != yaml.ScalarNode || flag.ShortTag() != yamlTagBool {
+		return false, fmt.Errorf("%w: userdata.release-align.archived", errWorkspaceField)
+	}
+
+	return flag.Value == yamlBoolTrue, nil
 }
 
 // rejectProjectKeys allows known metadata and rejects import and submodules.

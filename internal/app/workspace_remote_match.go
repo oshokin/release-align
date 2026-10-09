@@ -89,6 +89,31 @@ func parseSCPRemote(raw string) (*remoteKey, bool) {
 	return key, true
 }
 
+// remoteIdentity compares a workspace URL with the configured origin.
+// An empty URL is unchecked. A non-empty result is the reason to refuse the checkout.
+func remoteIdentity(expected, actual string) string {
+	if strings.TrimSpace(expected) == "" {
+		return ""
+	}
+
+	want, wantOK := parseRemote(expected)
+	got, gotOK := parseRemote(actual)
+
+	if !wantOK && !gotOK {
+		return ""
+	}
+
+	if !wantOK || !gotOK {
+		return "workspace URL and origin cannot be compared"
+	}
+
+	if want.host != got.host || want.path != got.path {
+		return "origin does not match the workspace URL"
+	}
+
+	return ""
+}
+
 // remoteID is the map identity of a parsed remote. Nil has no identity.
 func (d *remoteDiff) remoteID(key *remoteKey) string {
 	if key == nil {

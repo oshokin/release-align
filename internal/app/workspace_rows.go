@@ -45,6 +45,11 @@ func newWorkspaceItems(spec *WorkspaceSpec, selected []*ProjectSpec) []*workspac
 			revision: spec.RevisionFor(project),
 			row:      record,
 		}
+
+		if project.revisionErr != nil {
+			blockRow(record, outcomeBlocked, reasonGitFailed, project.revisionErr.Error())
+		}
+
 		items = append(items, item)
 	}
 
@@ -96,9 +101,11 @@ func markPending(items []*workspaceItem, outcome, code, message string) {
 // itemsBlocked reports whether any selected row already has a reason.
 func (*runner) itemsBlocked(items []*workspaceItem) bool {
 	for _, item := range items {
-		if item.row.ReasonCode != "" {
-			return true
+		if item.row.Outcome == outcomeSkipped || item.row.ReasonCode == "" {
+			continue
 		}
+
+		return true
 	}
 
 	return false

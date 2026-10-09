@@ -78,6 +78,12 @@ func newWorkspaceCloneCommand(cfg *app.Config) *cobra.Command {
 	)
 	flags.StringArrayVar(&options.Repos, "repo", nil, "exact GitLab path_with_namespace; repeatable")
 	flags.BoolVar(&options.All, "all", false, "clone and include every project in gitlab.groups")
+	flags.BoolVar(
+		&options.IncludeArchived,
+		"include-archived",
+		false,
+		"download archived projects; does not update them later",
+	)
 	flags.StringVar(&options.Output, "output", options.Output, "output format: text or json")
 	flags.IntVar(&options.Attempts, "attempts", options.Attempts, "transport checks in total, including the first")
 	flags.DurationVar(&options.ProbeTimeout, "probe-timeout", options.ProbeTimeout, "timeout of one git ls-remote")

@@ -19,6 +19,8 @@ type cloneAdditionQuery struct {
 	protocol string
 	// hooks supply tests with a clone URL.
 	hooks *remoteHooks
+	// ctx bounds the local rev-parse used to pin a new archived clone.
+	ctx context.Context
 }
 
 // publishClone appends completed new paths. It does not delete clones when the write fails.
@@ -28,6 +30,7 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 		report:   j.report,
 		protocol: j.spec.GitLab.CloneProtocol,
 		hooks:    j.opts.hooks,
+		ctx:      ctx,
 	}
 
 	selected, err := j.cloneAdditions(query)
@@ -99,10 +102,25 @@ func (j *cloneJob) cloneAdditions(query *cloneAdditionQuery) ([]*ProjectSpec, er
 		}
 
 		project := &ProjectSpec{
-			Path:   item.path,
-			URL:    remote,
-			Groups: directoryGroups(item.path),
+			Path:     item.path,
+			URL:      remote,
+			Groups:   directoryGroups(item.path),
+			Archived: item.project != nil && item.project.Archived,
 		}
+
+		if project.Archived {
+			dir := filepath.Join(j.base, filepath.FromSlash(item.path))
+
+			oid, oidErr := j.client.Local(query.ctx, dir, "rev-parse", "--verify", "HEAD")
+			if oidErr != nil {
+				return nil, oidErr
+			}
+
+			project.Revision = &RevisionSpec{
+				Commit: strings.TrimSpace(oid),
+			}
+		}
+
 		selected = append(selected, project)
 	}
 
@@ -231,6 +249,12 @@ func (j *cloneJob) recoveryCommand(opts *WorkspaceCloneOptions, paths []string) 
 
 	for _, path := range paths {
 		_, _ = command.WriteString(" --repo " + shellArg(path))
+	}
+
+	if opts.IncludeArchived {
+		_, _ = command.WriteString(" --include-archived")
+
+		return command.String()
 	}
 
 	_, _ = command.WriteString("\nOr: release-align workspace refresh --base-dir " + shellArg(opts.BaseDir))

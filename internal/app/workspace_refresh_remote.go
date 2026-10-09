@@ -38,6 +38,10 @@ func refreshFromRemote(
 		RemoteAbsent: absent,
 	}
 
+	if options.Apply {
+		return applyArchiveMarks(ctx, filename, options, projects)
+	}
+
 	if !options.Sync {
 		return result, nil
 	}
@@ -58,6 +62,61 @@ func refreshFromRemote(
 	written.Deleted, err = deleteDroppedCheckouts(options.BaseDir, written.Removed)
 
 	return written, err
+}
+
+// applyArchiveMarks stores the catalog archive flag on projects already in the file.
+// A project missing from the catalog is left unchanged.
+func applyArchiveMarks(
+	ctx context.Context,
+	filename string,
+	options *WorkspaceRefreshOptions,
+	projects []*gitlab.Project,
+) (*WorkspaceRefreshResult, error) {
+	path, err := refreshPath(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	unlock, err := lockWorkspaceFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	defer unlock()
+
+	document, err := loadRefreshDocument(path)
+	if err != nil {
+		return nil, err
+	}
+
+	byPath := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		if project != nil && project.PathWithNamespace != "" {
+			byPath[project.PathWithNamespace] = project.Archived
+		}
+	}
+
+	changed, err := writeArchiveMarks(document.root, byPath)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &WorkspaceRefreshResult{
+		Listed: len(document.spec.Projects),
+		Remote: true,
+	}
+
+	if !changed {
+		return result, nil
+	}
+
+	if err = publishWorkspace(ctx, document, document.spec, options.publish); err != nil {
+		return nil, err
+	}
+
+	result.Written = true
+
+	return result, nil
 }
 
 // requireRefreshGitLab rejects a file that cannot be compared with the catalog.

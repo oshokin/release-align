@@ -37,6 +37,8 @@ type workspaceRefreshCommand struct {
 	remote bool
 	// delete removes checkouts dropped by this same --remote --sync run.
 	delete bool
+	// apply stores archive marks for projects already listed.
+	apply bool
 }
 
 const (
@@ -100,7 +102,13 @@ func newWorkspaceRefreshCommand(cfg *app.Config) *cobra.Command {
 	flags.StringVar(&handler.file, "file", defaultWorkspaceFile, "workspace YAML (.yml or .yaml)")
 	flags.StringArrayVar(&handler.add, "add", nil, "exact relative path to add; repeatable; not a glob")
 	flags.BoolVar(&handler.sync, "sync", false, "apply the whole diff; optional PATH arguments limit the add or drop")
-	flags.BoolVar(&handler.remote, "remote", false, "compare listed paths with the non-archived GitLab catalog")
+	flags.BoolVar(
+		&handler.remote,
+		"remote",
+		false,
+		"compare listed paths with the GitLab catalog, including archived projects",
+	)
+	flags.BoolVar(&handler.apply, "apply", false, "with --remote, store archive marks for projects already in the file")
 	flags.BoolVar(
 		&handler.delete,
 		"delete",
@@ -162,6 +170,7 @@ func (c *workspaceRefreshCommand) run(command *cobra.Command, args []string) err
 		SyncPaths: args,
 		Remote:    c.remote,
 		Delete:    c.delete,
+		Apply:     c.apply,
 	}
 
 	result, err := app.RefreshWorkspace(logged.ctx, logged.client, c.file, options)

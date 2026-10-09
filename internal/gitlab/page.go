@@ -189,7 +189,6 @@ func (c *Client) projectURL(group string, page int) (*apiEndpoint, error) {
 	values := url.Values{}
 	values.Set("include_subgroups", "true")
 	values.Set("with_shared", "false")
-	values.Set("archived", "false")
 	values.Set("order_by", "id")
 	values.Set("sort", "asc")
 	values.Set("per_page", strconv.Itoa(projectsPerPage))

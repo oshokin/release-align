@@ -64,6 +64,8 @@ type ProjectSpec struct {
 	Path string
 	// URL is the clone URL recorded for west. Empty means it was not known.
 	URL string
+	// Archived is the saved GitLab archive mark. It is not proof of the current server state.
+	Archived bool
 	// Groups are directory prefixes used by --group. They are not GitLab groups.
 	Groups []string
 	// Revision pins one branch, tag, or commit. Nil uses the workspace default.
@@ -72,6 +74,8 @@ type ProjectSpec struct {
 	shortRevision string
 	// resolvedRevision is a per-run lookup result, never an explicit pin in the document.
 	resolvedRevision *RevisionSpec
+	// revisionErr is a per-run lookup failure. It does not change the file.
+	revisionErr error
 	// CloneDepth is west metadata. workspace clone refuses a file that sets it.
 	CloneDepth *int
 }
@@ -356,6 +360,7 @@ func (p *ProjectSpec) clone() *ProjectSpec {
 		shortRevision:    p.shortRevision,
 		resolvedRevision: p.resolvedRevision.clone(),
 		CloneDepth:       p.cloneDepth(p.CloneDepth),
+		Archived:         p.Archived,
 	}
 
 	return cloned

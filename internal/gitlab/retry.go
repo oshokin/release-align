@@ -13,12 +13,28 @@ import (
 	"github.com/oshokin/release-align/internal/retry"
 )
 
+// attemptTimeoutError keeps one HTTP deadline separate from the catalog context.
+// It has no Unwrap: the shared retry engine stops on context errors before classification.
+type attemptTimeoutError struct {
+	// cause is the deadline from one attempt.
+	cause error
+}
+
 // gitlabDelay is the pause for one withRetry call. It is not stored on Client.
 type gitlabDelay struct {
 	// configured is Client.RetryDelay.
 	configured time.Duration
 	// server is the latest Retry-After value. It is cleared at the start of each attempt.
 	server time.Duration
+}
+
+// Error returns the attempt deadline.
+func (e *attemptTimeoutError) Error() string {
+	if e == nil || e.cause == nil {
+		return context.DeadlineExceeded.Error()
+	}
+
+	return e.cause.Error()
 }
 
 // Delay returns the longer of the configured pause and Retry-After.
@@ -54,14 +70,32 @@ func (c *Client) withRetry(ctx context.Context, op func(context.Context) error) 
 			wait.server = status.wait
 		}
 
+		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+			timeout := &attemptTimeoutError{
+				cause: err,
+			}
+
+			return timeout
+		}
+
 		return err
 	}
 
-	return retry.Do(ctx, cfg, wrapped)
+	err := retry.Do(ctx, cfg, wrapped)
+
+	if timeout, ok := errors.AsType[*attemptTimeoutError](err); ok && timeout != nil {
+		return timeout.cause
+	}
+
+	return err
 }
 
 // retryableGitLab allows another try for a timeout, a dropped connection, 429, or 5xx.
 func (c *Client) retryableGitLab(err error) bool {
+	if timeout, ok := errors.AsType[*attemptTimeoutError](err); ok && timeout != nil {
+		return true
+	}
+
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, errGitLabRedirect) {
 		return false
 	}

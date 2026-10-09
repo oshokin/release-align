@@ -3,13 +3,14 @@ package gitlab
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 )
 
-// Project is one non-archived project returned by the groups API.
+// Project is one project returned by the groups API, including archived projects.
 type Project struct {
 	// ID is the numeric GitLab project id used for deduplication.
 	ID int `json:"id"`
@@ -21,7 +22,7 @@ type Project struct {
 	HTTPURLToRepo string `json:"http_url_to_repo"`
 	// DefaultBranch is the repository default branch. Empty means the project is not cloned implicitly.
 	DefaultBranch string `json:"default_branch"`
-	// Archived reports a project the listing asked GitLab to exclude.
+	// Archived is the server lifecycle flag. A missing JSON field is refused.
 	Archived bool `json:"archived"`
 }
 
@@ -69,7 +70,42 @@ var (
 	errGitLabRateLimited = errors.New("GitLab API rate limit exceeds the remaining deadline")
 	// errGitLabStatus means the request failed and the body was not shown.
 	errGitLabStatus = errors.New("GitLab API request failed")
+	// errGitLabArchived means a project object omitted the archived field.
+	errGitLabArchived = errors.New("GitLab project omitted archived")
 )
+
+// UnmarshalJSON requires the archived field so a missing value is not treated as active.
+func (p *Project) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID                int    `json:"id"`
+		PathWithNamespace string `json:"path_with_namespace"`
+		SSHURLToRepo      string `json:"ssh_url_to_repo"`
+		HTTPURLToRepo     string `json:"http_url_to_repo"`
+		DefaultBranch     string `json:"default_branch"`
+		Archived          *bool  `json:"archived"`
+	}
+
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if raw.Archived == nil {
+		return errGitLabArchived
+	}
+
+	if p == nil {
+		return errGitLabStatus
+	}
+
+	p.ID = raw.ID
+	p.PathWithNamespace = raw.PathWithNamespace
+	p.SSHURLToRepo = raw.SSHURLToRepo
+	p.HTTPURLToRepo = raw.HTTPURLToRepo
+	p.DefaultBranch = raw.DefaultBranch
+	p.Archived = *raw.Archived
+
+	return nil
+}
 
 // ListProjects reads every configured group before returning a catalog.
 // A failure discards pages already read. Projects are deduplicated by numeric id.
@@ -113,7 +149,7 @@ func (c *Client) mergeProjects(seen map[int]*Project, projects []*Project) ([]*P
 	added := make([]*Project, 0)
 
 	for _, project := range projects {
-		if project == nil || project.Archived {
+		if project == nil {
 			continue
 		}
 

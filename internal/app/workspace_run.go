@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"time"
 
+	"github.com/oshokin/release-align/internal/gitlab"
 	"github.com/oshokin/release-align/internal/gitter"
 )
 
@@ -50,11 +52,21 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 		LocalTimeout: cfg.LocalTimeout,
 		NoLazyFetch:  true,
 	}
+
+	listedProjects, err := listedCatalog(ctx, cfg, spec)
+	if err != nil {
+		report.Errors = []string{err.Error()}
+		report.RemoteInventory = remoteNote(spec, remoteStatusFailed, "", err.Error())
+
+		return report, err
+	}
+
 	lookup := &revisionLookup{
 		git:      client,
 		base:     cfg.BaseDir,
 		spec:     spec,
 		projects: selected,
+		soft:     true,
 	}
 
 	if err = ResolveWorkspaceRevisions(ctx, lookup); err != nil {
@@ -82,10 +94,12 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 	report, runErr = finishWorkspace(ctx, done)
 
 	check := &remoteCheck{
-		cfg:    cfg,
-		spec:   spec,
-		report: report,
-		runErr: runErr,
+		cfg:      cfg,
+		spec:     spec,
+		report:   report,
+		runErr:   runErr,
+		projects: listedProjects,
+		listed:   cfg.Remote,
 	}
 
 	return attachRemote(ctx, check)
@@ -117,6 +131,22 @@ func LogWorkspaceReport(ctx context.Context, report *WorkspaceReport, text bool)
 	}
 
 	logWorkspaceSummary(ctx, report)
+}
+
+// listedCatalog reads GitLab before checkout when --remote is set.
+func listedCatalog(ctx context.Context, cfg *Config, spec *WorkspaceSpec) ([]*gitlab.Project, error) {
+	if cfg == nil || !cfg.Remote {
+		return nil, nil
+	}
+
+	projects, err := listRemoteProjects(ctx, cfg, spec.GitLab)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errRemoteInventory, err)
+	}
+
+	noteServerArchived(spec, projects)
+
+	return projects, nil
 }
 
 // newWorkspaceReport builds the report shell before repositories are visited.

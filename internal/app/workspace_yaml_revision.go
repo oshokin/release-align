@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -28,6 +30,8 @@ type revisionLookup struct {
 	spec *WorkspaceSpec
 	// projects are the selected repositories.
 	projects []*ProjectSpec
+	// soft records a local lookup failure on the project instead of aborting the report.
+	soft bool
 }
 
 // ResolveWorkspaceRevisions classifies short west names from local branch and tag refs.
@@ -44,7 +48,7 @@ func ResolveWorkspaceRevisions(ctx context.Context, lookup *revisionLookup) erro
 
 // resolveProjectRevision looks up one project's short revision in that repository.
 func resolveProjectRevision(ctx context.Context, lookup *revisionLookup, project *ProjectSpec) error {
-	if project == nil || project.Revision != nil {
+	if project == nil || project.Revision != nil || (lookup.soft && project.Archived) {
 		return nil
 	}
 
@@ -59,11 +63,21 @@ func resolveProjectRevision(ctx context.Context, lookup *revisionLookup, project
 
 	dir, err := ResolveProjectDirectory(lookup.base, project.Path)
 	if err != nil {
+		if lookup.soft && errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
 		return fmt.Errorf("%s: %w", project.Path, errWorkspaceRevisionShort)
 	}
 
 	revision, err := classifyShortRevision(ctx, lookup.git, dir, short)
 	if err != nil {
+		if lookup.soft && ctx.Err() == nil {
+			project.revisionErr = fmt.Errorf("%s: %w", project.Path, err)
+
+			return nil
+		}
+
 		return fmt.Errorf("%s: %w", project.Path, err)
 	}
 

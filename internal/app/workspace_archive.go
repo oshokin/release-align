@@ -13,7 +13,7 @@ import (
 
 // WorkspaceArchiveOptions selects repositories and the destination ZIP.
 type WorkspaceArchiveOptions struct {
-	// WorkspaceFile is the inventory JSON.
+	// WorkspaceFile is the inventory YAML.
 	WorkspaceFile string
 	// BaseDir is the directory that contains the clones.
 	BaseDir string

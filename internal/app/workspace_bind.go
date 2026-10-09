@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/oshokin/release-align/internal/gitter"
 )
 
 // bindWorkspaceDirs resolves every selected path before any fetch starts.
@@ -32,6 +34,12 @@ func (r *runner) bindWorkspaceDirs(ctx context.Context, items []*workspaceItem) 
 
 // bindWorkspaceDir resolves one path and attaches its Git repository.
 func (r *runner) bindWorkspaceDir(ctx context.Context, item *workspaceItem, seen []string) ([]string, error) {
+	if item.spec != nil && item.spec.Archived {
+		blockRow(item.row, outcomeSkipped, reasonArchived, "archived, excluded from release alignment")
+
+		return seen, nil
+	}
+
 	dir, err := ResolveProjectDirectory(r.cfg.BaseDir, item.spec.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		blockRow(item.row, outcomeBlocked, reasonMissingRepository, "repository directory is absent")
@@ -97,7 +105,29 @@ func (r *runner) bindGitRepo(ctx context.Context, item *workspaceItem) error {
 
 	remote, err := r.git.Local(ctx, item.dir, "remote", "get-url", "origin")
 	if err != nil {
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+
+		// Exit 2 is the documented missing-remote result. Any other failure is local Git, not a dead GitLab.
+		if gitter.ExitCode(err) != 2 {
+			blockRow(item.row, outcomeBlocked, reasonGitFailed, redactGitText(err.Error()))
+
+			return nil
+		}
+
 		return r.noteMissingOrigin(ctx, item)
+	}
+
+	expected := ""
+	if item.spec != nil {
+		expected = item.spec.URL
+	}
+
+	if mismatch := remoteIdentity(expected, remote); mismatch != "" {
+		blockRow(item.row, outcomeBlocked, reasonRemoteMismatch, mismatch)
+
+		return nil
 	}
 
 	item.repo = &repository{

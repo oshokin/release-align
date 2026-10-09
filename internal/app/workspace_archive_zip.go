@@ -10,6 +10,8 @@ import (
 type archiveNames struct {
 	// kinds maps a slash path without a trailing slash to dir, file, or link.
 	kinds map[string]string
+	// children records a path that already has a descendant entry.
+	children map[string]struct{}
 }
 
 const (
@@ -24,7 +26,8 @@ const (
 // newArchiveNames starts an empty path set.
 func newArchiveNames() *archiveNames {
 	return &archiveNames{
-		kinds: map[string]string{},
+		kinds:    map[string]string{},
+		children: map[string]struct{}{},
 	}
 }
 
@@ -72,16 +75,22 @@ func (n *archiveNames) parents(key, kind string) error {
 		}
 	}
 
-	if kind == archiveKindDir {
-		return nil
-	}
-
-	prefix := key + "/"
-
-	for existing := range n.kinds {
-		if strings.HasPrefix(existing, prefix) {
+	if kind != archiveKindDir {
+		if _, ok := n.children[key]; ok {
 			return errArchiveEntry
 		}
+	}
+
+	parent = key
+
+	for {
+		slash := strings.LastIndex(parent, "/")
+		if slash < 0 {
+			break
+		}
+
+		parent = parent[:slash]
+		n.children[parent] = struct{}{}
 	}
 
 	return nil

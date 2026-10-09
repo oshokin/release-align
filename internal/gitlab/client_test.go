@@ -36,7 +36,7 @@ func TestListProjectsPaginatesAndDedupes(t *testing.T) {
 
 		query := r.URL.Query()
 		if query.Get("include_subgroups") != "true" || query.Get("with_shared") != "false" ||
-			query.Get("archived") != "false" || query.Get("per_page") != "100" {
+			query.Get("archived") != "" || query.Get("per_page") != "100" {
 			t.Fatalf("query %s", r.URL.RawQuery)
 		}
 

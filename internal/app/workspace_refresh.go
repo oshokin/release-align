@@ -26,6 +26,8 @@ type WorkspaceRefreshOptions struct {
 	Remote bool
 	// Delete removes checkouts that this same --remote --sync run dropped from the file.
 	Delete bool
+	// Apply stores GitLab archive marks for projects already listed. It requires Remote.
+	Apply bool
 	// catalog replaces the GitLab listing. Nil means call the API.
 	catalog *refreshCatalog
 	// remote replaces the token and HTTP client used for that listing.
@@ -95,6 +97,8 @@ var (
 	errWorkspaceRefreshRemoteAdd = errors.New("workspace refresh --remote cannot be combined with --add")
 	// errWorkspaceRefreshRemotePaths means --remote was given disk --sync path arguments.
 	errWorkspaceRefreshRemotePaths = errors.New("workspace refresh --remote does not take paths")
+	// errWorkspaceRefreshApply means --apply was used without a catalog-only --remote run.
+	errWorkspaceRefreshApply = errors.New("workspace refresh --apply requires --remote and cannot change membership")
 	// errWorkspaceRefreshEmptyRemote means a successful empty catalog would drop every listed project.
 	errWorkspaceRefreshEmptyRemote = errors.New(
 		"refusing to drop listed repositories; GitLab returned no projects",
@@ -148,6 +152,10 @@ func validateRefreshOptions(filename string, options *WorkspaceRefreshOptions) e
 
 	if options.Remote && len(options.SyncPaths) > 0 {
 		return refreshUsage(errWorkspaceRefreshRemotePaths)
+	}
+
+	if options.Apply && (!options.Remote || options.Sync || len(options.Add) > 0 || options.Delete) {
+		return refreshUsage(errWorkspaceRefreshApply)
 	}
 
 	return nil

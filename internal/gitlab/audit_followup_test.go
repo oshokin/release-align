@@ -72,7 +72,7 @@ func TestAuditRepeatedBody(t *testing.T) {
 			return
 		}
 
-		fmt.Fprint(w, `[{"id":1,"path_with_namespace":"lamiona/one","default_branch":"master"}]`)
+		fmt.Fprint(w, `[{"id":1,"path_with_namespace":"lamiona/one","default_branch":"master","archived":false}]`)
 	}))
 	t.Cleanup(server.Close)
 
