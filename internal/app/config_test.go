@@ -17,6 +17,7 @@ func TestEnvironment(t *testing.T) {
 		"BASE_DIR":      "/tmp/work",
 		"JOBS":          "8",
 		"DRY_RUN":       "1",
+		"IGNORE_ERRORS": "true",
 		"LOG_LEVEL":     "DeBuG",
 		"FETCH_TIMEOUT": "12s",
 		"PROBE_TIMEOUT": "750ms",
@@ -26,7 +27,7 @@ func TestEnvironment(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	if cfg.BaseDir != "/tmp/work" || cfg.Jobs != 8 || !cfg.DryRun || cfg.LogLevel != "DeBuG" ||
+	if cfg.BaseDir != "/tmp/work" || cfg.Jobs != 8 || !cfg.DryRun || !cfg.IgnoreErrors || cfg.LogLevel != "DeBuG" ||
 		cfg.FetchTimeout != 12*time.Second || cfg.ProbeTimeout != 750*time.Millisecond {
 		t.Fatal(cfg)
 	}

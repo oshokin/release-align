@@ -5,7 +5,8 @@ import (
 	"errors"
 )
 
-// applyWorkspace checks out each planned repository, stopping after the first failure.
+// applyWorkspace checks out each planned repository.
+// Without --ignore-errors the first failure leaves the rest unstarted.
 func (r *runner) applyWorkspace(ctx context.Context, items []*workspaceItem) error {
 	r.beginPhase("apply", r.plannedCount(items))
 
@@ -21,7 +22,7 @@ func (r *runner) applyWorkspace(ctx context.Context, items []*workspaceItem) err
 		}
 
 		err := r.applyItem(ctx, item)
-		r.step(ctx, item.spec.Path, r.rowLogMessage(item.row))
+		r.stepLevel(ctx, item.spec.Path, r.rowLogMessage(item.row), item.row.Outcome == outcomeBlocked)
 
 		if err == nil {
 			continue
@@ -31,6 +32,10 @@ func (r *runner) applyWorkspace(ctx context.Context, items []*workspaceItem) err
 			markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
 
 			return context.Cause(ctx)
+		}
+
+		if r.ignoreErrors() {
+			continue
 		}
 
 		markPending(items[index+1:], outcomeNotStarted, reasonPlanBlocked, "a selected repository failed during apply")

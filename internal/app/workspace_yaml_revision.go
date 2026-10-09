@@ -127,7 +127,7 @@ func refExists(ctx context.Context, g LocalGit, dir, ref string) (bool, error) {
 func optionalRevision(node *yaml.Node) (*parsedRevision, error) {
 	value, ok := mappingValue(node, keyRevision)
 	if !ok {
-		empty := &parsedRevision{}
+		empty := new(parsedRevision)
 
 		return empty, nil
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // decodedWorkspace is a validated inventory and the YAML node that produced it.
@@ -26,6 +28,30 @@ type namedRemote struct {
 	name string
 	// base is the url-base joined in front of a project.
 	base string
+}
+
+// projectList is the manifest section that becomes spec.Projects.
+type projectList struct {
+	// spec receives the decoded projects.
+	spec *WorkspaceSpec
+	// manifest is the west document root.
+	manifest *yaml.Node
+	// bases maps a remote name to its url-base.
+	bases map[string]string
+	// defaultRemote is the remote used when a project omits one.
+	defaultRemote string
+}
+
+// projectURL is the west rule for one project's clone URL.
+type projectURL struct {
+	// node is the project mapping.
+	node *yaml.Node
+	// name is the project name.
+	name string
+	// bases maps a remote name to its url-base.
+	bases map[string]string
+	// defaultRemote is the remote used when the project omits one.
+	defaultRemote string
 }
 
 // projectNames is the west name and the workspace path of one project.
@@ -216,7 +242,7 @@ func walkMapping(node *yaml.Node, depth int) error {
 		return errWorkspaceField
 	}
 
-	seen := make(map[string]bool, len(node.Content)/2)
+	seen := make(map[string]struct{}, len(node.Content)/2)
 
 	for i := 0; i < len(node.Content); i += 2 {
 		key := node.Content[i]
@@ -233,7 +259,7 @@ func walkMapping(node *yaml.Node, depth int) error {
 }
 
 // mappingKey rejects a non-string, merge, or repeated key.
-func mappingKey(key *yaml.Node, seen map[string]bool) error {
+func mappingKey(key *yaml.Node, seen map[string]struct{}) error {
 	if key != nil && key.Anchor != "" {
 		return errWorkspaceAnchor
 	}
@@ -246,11 +272,11 @@ func mappingKey(key *yaml.Node, seen map[string]bool) error {
 		return errWorkspaceAnchor
 	}
 
-	if seen[key.Value] {
+	if _, found := seen[key.Value]; found {
 		return fmt.Errorf("%w: duplicate %q line %d", errWorkspaceField, key.Value, key.Line)
 	}
 
-	seen[key.Value] = true
+	seen[key.Value] = struct{}{}
 
 	return nil
 }
@@ -319,7 +345,13 @@ func decodeManifest(spec *WorkspaceSpec, manifest *yaml.Node) error {
 		return err
 	}
 
-	if err = decodeProjects(spec, manifest, bases, defaultRemote); err != nil {
+	projects := &projectList{
+		spec:          spec,
+		manifest:      manifest,
+		bases:         bases,
+		defaultRemote: defaultRemote,
+	}
+	if err = decodeProjects(projects); err != nil {
 		return err
 	}
 
@@ -473,12 +505,16 @@ func decodeDefaultRevision(spec *WorkspaceSpec, defaults *yaml.Node) error {
 }
 
 // decodeProjects reads every project and resolves explicit URLs.
-func decodeProjects(
-	spec *WorkspaceSpec,
-	manifest *yaml.Node,
-	bases map[string]string,
-	defaultRemote string,
-) error {
+func decodeProjects(projects *projectList) error {
+	if projects == nil || projects.spec == nil {
+		return errWorkspaceSchema
+	}
+
+	spec := projects.spec
+	manifest := projects.manifest
+	bases := projects.bases
+	defaultRemote := projects.defaultRemote
+
 	node, ok := mappingValue(manifest, keyProjects)
 	if !ok || node.Kind != yaml.SequenceNode || len(node.Content) == 0 {
 		return errWorkspaceSchema
@@ -516,7 +552,14 @@ func decodeProject(node *yaml.Node, bases map[string]string, defaultRemote strin
 	name := identity.name
 	path := identity.path
 
-	cloneURL, err := projectCloneURL(node, name, bases, defaultRemote)
+	address := &projectURL{
+		node:          node,
+		name:          name,
+		bases:         bases,
+		defaultRemote: defaultRemote,
+	}
+
+	cloneURL, err := projectCloneURL(address)
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +656,15 @@ func projectIdentity(node *yaml.Node) (*projectNames, error) {
 
 // projectCloneURL follows west: explicit url, otherwise url-base plus repo-path or name.
 // The join does not add .git and does not trim a slash from url-base.
-func projectCloneURL(node *yaml.Node, name string, bases map[string]string, defaultRemote string) (string, error) {
+func projectCloneURL(address *projectURL) (string, error) {
+	if address == nil {
+		return "", errWorkspaceField
+	}
+
+	node := address.node
+	name := address.name
+	bases := address.bases
+	defaultRemote := address.defaultRemote
 	_, hasURL := mappingValue(node, keyURL)
 	_, hasRemote := mappingValue(node, keyRemote)
 	_, hasRepo := mappingValue(node, "repo-path")
@@ -664,7 +715,7 @@ func projectCloneURL(node *yaml.Node, name string, bases map[string]string, defa
 func decodeCloneDepth(node *yaml.Node) (*cloneDepthValue, error) {
 	raw, ok := mappingValue(node, "clone-depth")
 	if !ok {
-		return &cloneDepthValue{}, nil
+		return new(cloneDepthValue), nil
 	}
 
 	if raw.ShortTag() != yamlTagInt {
@@ -777,7 +828,7 @@ func decodeReleaseAlign(spec *WorkspaceSpec, root *yaml.Node) error {
 		return errWorkspaceField
 	}
 
-	allowed := []string{"schema-version", "release", "base-dir", "gitlab", "timeouts"}
+	allowed := []string{"schema-version", "release", "base-dir", "log-level", "gitlab", "timeouts"}
 	if err := unknownKeys(node, keyReleaseAlign, allowed); err != nil {
 		return err
 	}
@@ -800,11 +851,35 @@ func decodeReleaseAlign(spec *WorkspaceSpec, root *yaml.Node) error {
 	}
 
 	spec.BaseDir = baseDir
+
+	level, err := optionalString(node, "log-level")
+	if err != nil {
+		return err
+	}
+
+	spec.LogLevel = level
+	if err = validWorkspaceLogLevel(level); err != nil {
+		return err
+	}
+
 	if err = decodeGitLab(spec, node); err != nil {
 		return err
 	}
 
 	return decodeTimeouts(spec, node)
+}
+
+// validWorkspaceLogLevel accepts an omitted level and the names the logger understands.
+func validWorkspaceLogLevel(level string) error {
+	if level == "" {
+		return nil
+	}
+
+	if _, ok := logger.ParseLogLevel(level); !ok {
+		return fmt.Errorf("%s: %w", level, errInvalidLogLevel)
+	}
+
+	return nil
 }
 
 // decodeGitLab reads the discovery scope. It is not derived from remotes.
@@ -857,7 +932,15 @@ func decodeTimeouts(spec *WorkspaceSpec, block *yaml.Node) error {
 		return errWorkspaceField
 	}
 
-	names := []string{timeoutProbe, timeoutFetch, timeoutLocal, timeoutClone, timeoutArchive}
+	names := []string{
+		timeoutProbe,
+		timeoutFetch,
+		timeoutCatalog,
+		timeoutCatalogBudget,
+		timeoutLocal,
+		timeoutClone,
+		timeoutArchive,
+	}
 	if err := unknownKeys(node, "timeouts", names); err != nil {
 		return err
 	}
@@ -866,23 +949,31 @@ func decodeTimeouts(spec *WorkspaceSpec, block *yaml.Node) error {
 
 	var err error
 
-	if err = assignTimeout(node, timeoutProbe, &timeouts.Probe); err != nil {
+	if timeouts.Probe, err = readTimeout(node, timeoutProbe); err != nil {
 		return err
 	}
 
-	if err = assignTimeout(node, timeoutFetch, &timeouts.Fetch); err != nil {
+	if timeouts.Fetch, err = readTimeout(node, timeoutFetch); err != nil {
 		return err
 	}
 
-	if err = assignTimeout(node, timeoutLocal, &timeouts.Local); err != nil {
+	if timeouts.Catalog, err = readTimeout(node, timeoutCatalog); err != nil {
 		return err
 	}
 
-	if err = assignTimeout(node, timeoutClone, &timeouts.Clone); err != nil {
+	if timeouts.CatalogBudget, err = readTimeout(node, timeoutCatalogBudget); err != nil {
 		return err
 	}
 
-	if err = assignTimeout(node, timeoutArchive, &timeouts.Archive); err != nil {
+	if timeouts.Local, err = readTimeout(node, timeoutLocal); err != nil {
+		return err
+	}
+
+	if timeouts.Clone, err = readTimeout(node, timeoutClone); err != nil {
+		return err
+	}
+
+	if timeouts.Archive, err = readTimeout(node, timeoutArchive); err != nil {
 		return err
 	}
 
@@ -891,33 +982,33 @@ func decodeTimeouts(spec *WorkspaceSpec, block *yaml.Node) error {
 	return nil
 }
 
-// assignTimeout copies one scalar into dest. A missing key leaves dest nil.
-func assignTimeout(node *yaml.Node, key string, dest **string) error {
+// readTimeout returns one duration override. A missing key is a nil pointer.
+func readTimeout(node *yaml.Node, key string) (*string, error) {
 	value, ok := mappingValue(node, key)
 	if !ok {
-		return nil
+		//nolint:nilnil // A missing timeout key means the override is absent.
+		return nil, nil
 	}
 
 	if value.Kind != yaml.ScalarNode {
-		return fmt.Errorf("%w: %s line %d", errWorkspaceField, key, value.Line)
+		return nil, fmt.Errorf("%w: %s line %d", errWorkspaceField, key, value.Line)
 	}
 
 	text := value.Value
-	*dest = &text
 
-	return nil
+	return &text, nil
 }
 
 // unknownKeys rejects a key that this reader would otherwise drop.
 func unknownKeys(node *yaml.Node, path string, allowed []string) error {
-	known := make(map[string]bool, len(allowed))
+	known := make(map[string]struct{}, len(allowed))
 	for _, key := range allowed {
-		known[key] = true
+		known[key] = struct{}{}
 	}
 
 	for i := 0; i < len(node.Content); i += 2 {
 		key := node.Content[i]
-		if !known[key.Value] {
+		if _, found := known[key.Value]; !found {
 			return fmt.Errorf("%w: %s.%s line %d", errWorkspaceField, path, key.Value, key.Line)
 		}
 	}

@@ -14,10 +14,13 @@ import (
 const (
 	// maxDirtyPaths is how many blocking paths an info line lists. Debug lists every path.
 	maxDirtyPaths = 10
+	// messageUnpushedCurrent means the checked-out branch is not contained in origin.
+	messageUnpushedCurrent = "current branch has unpushed commits or diverges from origin"
 )
 
-// safeCurrent reports why this repository must be left untouched.
+// safeCurrent reports why the current branch must not be fast-forwarded.
 // A dirty tree, a detached HEAD, and an unfinished merge or rebase always block.
+// Another local branch is not checked here: its commits stay on that branch.
 func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, error) {
 	status, err := r.porcelain(ctx, repo)
 	if err != nil {
@@ -55,7 +58,7 @@ func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, err
 
 	fields := strings.Fields(upstream)
 	if len(fields) != 2 {
-		return "current branch has no upstream", nil
+		return r.containedByOrigin(ctx, repo, branch)
 	}
 
 	if fields[0] != "origin" || !strings.HasPrefix(fields[1], "refs/remotes/origin/") {
@@ -77,7 +80,33 @@ func (r *runner) safeCurrent(ctx context.Context, repo *repository) (string, err
 	}
 
 	if !ok {
-		return "current branch has unpushed commits or diverges from origin", nil
+		return messageUnpushedCurrent, nil
+	}
+
+	return "", nil
+}
+
+// containedByOrigin allows a fast-forward when the branch has no upstream.
+// HEAD must already be contained in origin. Local commits still block.
+func (r *runner) containedByOrigin(ctx context.Context, repo *repository, branch string) (string, error) {
+	remote := "refs/remotes/origin/" + branch
+
+	exists, err := r.refExists(ctx, repo, remote)
+	if err != nil {
+		return "", err
+	}
+
+	if !exists {
+		return "current branch has no upstream", nil
+	}
+
+	ok, err := r.ancestor(ctx, repo, "HEAD", remote)
+	if err != nil {
+		return "", err
+	}
+
+	if !ok {
+		return messageUnpushedCurrent, nil
 	}
 
 	return "", nil

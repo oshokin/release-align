@@ -31,8 +31,20 @@ func TestWorkspaceYAMLExampleReadsWestFields(t *testing.T) {
 
 	if spec.Projects[1].Revision.Tag != "v26.3.1" || spec.GitLab.CloneProtocol != cloneProtocolSSH ||
 		spec.Timeouts == nil || spec.Timeouts.Probe == nil || *spec.Timeouts.Probe != "5s" ||
-		spec.Timeouts.Fetch == nil {
+		spec.Timeouts.Fetch == nil || spec.LogLevel != "info" {
 		t.Fatalf("pin or timeouts %+v", spec)
+	}
+}
+
+// TestWorkspaceLogLevelRejectsABadName keeps an unknown level out of the inventory.
+func TestWorkspaceLogLevelRejectsABadName(t *testing.T) {
+	body := "manifest:\n  defaults:\n    revision: refs/heads/master\n  projects:\n" +
+		"    - name: one\n      path: group/one\n" +
+		"release-align:\n  schema-version: 1\n  log-level: nope\n"
+
+	_, err := DecodeWorkspace(strings.NewReader(body))
+	if err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatal(err)
 	}
 }
 

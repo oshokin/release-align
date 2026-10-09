@@ -25,7 +25,7 @@ type WorkspaceInitOptions struct {
 	Release string
 	// GitLabURL is saved when set. An empty value uses the base directory name when that name is a DNS host.
 	GitLabURL string
-	// GitLabGroups are saved when set. They are not inferred from directories.
+	// GitLabGroups are saved when set. An empty list is filled from origins on the saved GitLab host.
 	GitLabGroups []string
 }
 
@@ -119,10 +119,16 @@ func ScanWorkspace(ctx context.Context, g LocalGit, options *WorkspaceInitOption
 	}
 
 	gitlabURL, fromBase := gitlabURLForInit(options, base)
-	if gitlabURL != "" || len(options.GitLabGroups) > 0 {
+
+	groups := slices.Clone(options.GitLabGroups)
+	if gitlabURL != "" && len(groups) == 0 {
+		groups = gitlabGroupsFromProjects(gitlabURL, found.projects)
+	}
+
+	if gitlabURL != "" || len(groups) > 0 {
 		source := &GitLabSource{
 			URL:    gitlabURL,
-			Groups: slices.Clone(options.GitLabGroups),
+			Groups: groups,
 		}
 		spec.GitLab = source
 		spec.GitLabURLFromBase = fromBase
@@ -188,6 +194,68 @@ func gitlabURLForInit(options *WorkspaceInitOptions, base string) (string, bool)
 	}
 
 	return gitlabURLScheme + host, true
+}
+
+// gitlabGroupsFromProjects returns the top-level namespace of each origin on the saved GitLab host.
+// A local folder whose remote uses another namespace is not stored under the folder name.
+func gitlabGroupsFromProjects(gitlabURL string, projects []*ProjectSpec) []string {
+	host := gitlabHostKey(gitlabURL)
+	if host == "" {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	groups := make([]string, 0)
+
+	for _, project := range projects {
+		group, ok := gitlabGroupFromOrigin(host, project)
+		_, found := seen[group]
+
+		if !ok || found {
+			continue
+		}
+
+		seen[group] = struct{}{}
+		groups = append(groups, group)
+	}
+
+	slices.Sort(groups)
+
+	return groups
+}
+
+// gitlabHostKey is the host identity used by parseRemote, including a non-default port.
+func gitlabHostKey(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	if port := parsed.Port(); port != "" && !defaultRemotePort(strings.ToLower(parsed.Scheme), port) {
+		host += ":" + port
+	}
+
+	return host
+}
+
+// gitlabGroupFromOrigin returns the first path segment when the origin is on host.
+func gitlabGroupFromOrigin(host string, project *ProjectSpec) (string, bool) {
+	if project == nil || project.URL == "" {
+		return "", false
+	}
+
+	key, ok := parseRemote(project.URL)
+	if !ok || key.host != host {
+		return "", false
+	}
+
+	group, _, found := strings.Cut(key.path, "/")
+	if !found || !canonicalProjectPath(group) || strings.ContainsAny(group, "*?[]#") {
+		return "", false
+	}
+
+	return group, true
 }
 
 // directoryGitLabHost returns the lowercased last path component when it is a DNS host.

@@ -1,6 +1,7 @@
 package gitlab
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -11,6 +12,10 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"go.uber.org/zap/zapcore"
+
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -92,6 +97,34 @@ func TestListProjectsStopsOnEmptyNextHeader(t *testing.T) {
 
 	if err != nil || len(projects) != projectsPerPage || calls.Load() != 1 {
 		t.Fatalf("len %d calls %d err %v", len(projects), calls.Load(), err)
+	}
+}
+
+func TestListProjectsSkipsSinglePageProgress(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Total-Pages", "1")
+		w.Header().Set("X-Next-Page", "")
+		encodeJSON(t, w, []*Project{{
+			ID:                1,
+			PathWithNamespace: "UCS-3DPARTY/arangodb-go-driver",
+			DefaultBranch:     "master",
+		}})
+	}))
+	t.Cleanup(server.Close)
+
+	var buf bytes.Buffer
+
+	ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.InfoLevel, &buf))
+	client := testClient(server.URL, server.Client())
+	projects, err := client.ListProjects(ctx, []string{"UCS-3DPARTY"})
+
+	plain := buf.String()
+	listed := strings.Contains(plain, "page listed")
+	fetched := strings.Contains(plain, "GitLab GET")
+	failed := err != nil || len(projects) != 1 || !fetched || listed
+
+	if failed {
+		t.Fatalf("projects %d err %v log %s", len(projects), err, plain)
 	}
 }
 

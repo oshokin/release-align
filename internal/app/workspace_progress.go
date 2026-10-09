@@ -40,11 +40,20 @@ func (r *runner) beginPhase(name string, total int) {
 
 // step records one finished repository in the current phase.
 func (r *runner) step(ctx context.Context, repo, message string) {
+	r.stepLevel(ctx, repo, message, false)
+}
+
+// stepLevel records one finished repository. A blocked repository is a warning.
+func (r *runner) stepLevel(ctx context.Context, repo, message string, warn bool) {
 	if r.progress == nil {
 		return
 	}
 
-	r.progress.Advance(ctx, repo, message)
+	if warn {
+		r.progress.Warn(ctx, repo, message)
+	} else {
+		r.progress.Advance(ctx, repo, message)
+	}
 
 	if r.report == nil {
 		return
@@ -55,7 +64,7 @@ func (r *runner) step(ctx context.Context, repo, message string) {
 }
 
 // logTextRows prints each distinct repository result.
-// Identical canceled leftovers are one line.
+// Identical leftovers are one line: a canceled run, a dead origin, or a plan blocked by another repository.
 func logTextRows(ctx context.Context, rows []*WorkspaceRow) {
 	order := make([]string, 0)
 	groups := make(map[string]*stopGroup)
@@ -89,7 +98,7 @@ func logTextRows(ctx context.Context, rows []*WorkspaceRow) {
 	}
 }
 
-// logStopGroup prints one canceled repository, or a count when several share it.
+// logStopGroup prints one leftover repository, or a count when several share it.
 func logStopGroup(ctx context.Context, group *stopGroup) {
 	if group == nil || group.row == nil {
 		return
@@ -122,11 +131,22 @@ func logOneRow(ctx context.Context, row *WorkspaceRow) {
 		fields = append(fields, "reason", row.ReasonCode)
 	}
 
+	if row.Outcome == outcomeBlocked {
+		logger.WarnKV(ctx, row.Message, fields...)
+
+		return
+	}
+
 	logger.InfoKV(ctx, row.Message, fields...)
 }
 
-// bulkStop reports a repository left untouched because the run or the network stopped.
+// bulkStop reports a repository that was not started.
+// The run stopped, the origin was dead, or another selected repository already blocked the plan.
 func bulkStop(row *WorkspaceRow) bool {
+	if row.ReasonCode == reasonPlanBlocked {
+		return true
+	}
+
 	if row.Outcome != outcomeCanceled {
 		return false
 	}

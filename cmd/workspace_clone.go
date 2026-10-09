@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -11,6 +14,8 @@ import (
 
 // workspaceCloneCommand owns the flags of workspace clone.
 type workspaceCloneCommand struct {
+	// cfg is the shared program configuration. The root flag writes its log level here.
+	cfg *app.Config
 	// options are the parsed clone flags.
 	options *app.WorkspaceCloneOptions
 }
@@ -26,18 +31,20 @@ const (
 var errCloneOutput = errors.New("output must be text or json")
 
 // newWorkspaceCloneCommand downloads missing projects and registers them.
-func newWorkspaceCloneCommand() *cobra.Command {
-	defaults := app.DefaultConfig()
+func newWorkspaceCloneCommand(cfg *app.Config) *cobra.Command {
 	options := &app.WorkspaceCloneOptions{
-		Attempts:     defaults.Attempts,
-		ProbeTimeout: defaults.ProbeTimeout,
-		RetryDelay:   defaults.RetryDelay,
-		FetchTimeout: defaults.FetchTimeout,
-		LocalTimeout: defaults.LocalTimeout,
-		CloneTimeout: defaults.CloneTimeout,
-		Output:       defaults.Output,
+		Attempts:       cfg.Attempts,
+		ProbeTimeout:   cfg.ProbeTimeout,
+		RetryDelay:     cfg.RetryDelay,
+		FetchTimeout:   cfg.FetchTimeout,
+		CatalogTimeout: cfg.CatalogTimeout,
+		CatalogBudget:  cfg.CatalogBudget,
+		LocalTimeout:   cfg.LocalTimeout,
+		CloneTimeout:   cfg.CloneTimeout,
+		Output:         cfg.Output,
 	}
 	handler := &workspaceCloneCommand{
+		cfg:     cfg,
 		options: options,
 	}
 	command := &cobra.Command{
@@ -75,11 +82,18 @@ func newWorkspaceCloneCommand() *cobra.Command {
 	flags.IntVar(&options.Attempts, "attempts", options.Attempts, "transport checks in total, including the first")
 	flags.DurationVar(&options.ProbeTimeout, "probe-timeout", options.ProbeTimeout, "timeout of one git ls-remote")
 	flags.DurationVar(&options.RetryDelay, "retry-delay", options.RetryDelay, "pause between failed transport checks")
+	flags.DurationVar(&options.FetchTimeout, "fetch-timeout", options.FetchTimeout, "timeout per fetch")
 	flags.DurationVar(
-		&options.FetchTimeout,
-		"fetch-timeout",
-		options.FetchTimeout,
-		"budget for the GitLab catalog request",
+		&options.CatalogTimeout,
+		"catalog-timeout",
+		options.CatalogTimeout,
+		"timeout of one GitLab projects page",
+	)
+	flags.DurationVar(
+		&options.CatalogBudget,
+		"catalog-budget",
+		options.CatalogBudget,
+		"deadline for one GitLab group listing",
 	)
 	flags.DurationVar(&options.LocalTimeout, "local-timeout", options.LocalTimeout, "timeout of one local Git command")
 	flags.DurationVar(&options.CloneTimeout, "clone-timeout", options.CloneTimeout, "timeout of one git clone")
@@ -121,13 +135,34 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 	c.options.ProbeTimeout = cfg.ProbeTimeout
 	c.options.RetryDelay = cfg.RetryDelay
 	c.options.FetchTimeout = cfg.FetchTimeout
+	c.options.CatalogTimeout = cfg.CatalogTimeout
+	c.options.CatalogBudget = cfg.CatalogBudget
 	c.options.LocalTimeout = cfg.LocalTimeout
 	c.options.CloneTimeout = cfg.CloneTimeout
 
 	c.options.SetTimeoutLocks(timeoutLocks(command))
 	c.options.SetProgress(command.ErrOrStderr())
 
-	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, cfg.LogLevel)
+	spec, err := app.LoadWorkspace(c.options.WorkspaceFile)
+	if err != nil {
+		return c.fail(command, err)
+	}
+
+	if err = applyCommandEnv(command, c.cfg); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	if err = c.cfg.TakeLogLevel(durationLocked(command, "log-level", "LOG_LEVEL"), spec.LogLevel); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, c.cfg.LogLevel)
 	report, err := app.CloneWorkspace(ctx, c.options)
 
 	if err != nil && report != nil && report.Error == "" {
@@ -190,10 +225,62 @@ func (c *workspaceCloneCommand) cloneEnvConfig() *app.Config {
 // writeCloneReport writes JSON to stdout or the text summary.
 func (c *workspaceCloneCommand) writeCloneReport(command *cobra.Command, report *app.CloneReport) error {
 	if c.options.Output == cloneOutputJSON {
-		return app.WriteCloneReport(command.OutOrStdout(), report)
+		return c.writeCloneJSON(command.OutOrStdout(), report)
 	}
 
-	return app.FormatCloneReport(command.OutOrStdout(), report)
+	return c.formatCloneReport(command.OutOrStdout(), report)
+}
+
+// formatCloneReport writes the text summary.
+func (*workspaceCloneCommand) formatCloneReport(w io.Writer, report *app.CloneReport) error {
+	if w == nil || report == nil {
+		return nil
+	}
+
+	_, err := fmt.Fprintf(
+		w,
+		"Cloned: %d. Reused: %d. Added to workspace: %d. Failed: %d.\n"+
+			"Clones use their remote default branches; release alignment has not run.\n",
+		report.Cloned,
+		report.Reused,
+		report.Added,
+		report.Failed,
+	)
+	if err != nil {
+		return err
+	}
+
+	if report.SkippedEmpty > 0 {
+		if _, err = fmt.Fprintf(w, "Skipped, no default branch: %d.\n", report.SkippedEmpty); err != nil {
+			return err
+		}
+	}
+
+	if report.Recovery != "" {
+		if _, err = fmt.Fprintf(w, "Recovery:\n  %s\n", report.Recovery); err != nil {
+			return err
+		}
+	}
+
+	if report.Next == "" {
+		return nil
+	}
+
+	_, err = fmt.Fprintf(w, "Next:\n  %s\n", report.Next)
+
+	return err
+}
+
+// writeCloneJSON writes one JSON document.
+func (*workspaceCloneCommand) writeCloneJSON(w io.Writer, report *app.CloneReport) error {
+	if report == nil {
+		return errNilReport
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+
+	return enc.Encode(report)
 }
 
 // cloneCommandError maps clone failures onto process statuses.

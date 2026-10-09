@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +13,8 @@ import (
 
 // workspaceInitCommand owns only the flags used by offline inventory creation.
 type workspaceInitCommand struct {
+	// cfg is the shared program configuration. The root flag writes its log level here.
+	cfg *app.Config
 	// options are the discovery flags.
 	options *app.WorkspaceInitOptions
 	// file is the workspace path to create.
@@ -25,6 +28,8 @@ const (
 	defaultWorkspaceFile = "release-align.yml"
 	// gitlabURLFromBaseNotice is printed when the GitLab URL came from the base directory name.
 	gitlabURLFromBaseNotice = "GitLab URL %s taken from the base directory name.\n"
+	// gitlabGroupsFromOriginsNotice is printed when groups were taken from clone URLs.
+	gitlabGroupsFromOriginsNotice = "GitLab groups taken from clone URLs on %s: %s.\n"
 )
 
 // errWorkspaceInitFlags means a required init flag was omitted or cleared.
@@ -38,6 +43,7 @@ func newWorkspaceCommand(cfg *app.Config) *cobra.Command {
 	}
 	options := new(app.WorkspaceInitOptions)
 	handler := &workspaceInitCommand{
+		cfg:     cfg,
 		options: options,
 	}
 	initCommand := &cobra.Command{
@@ -49,6 +55,7 @@ func newWorkspaceCommand(cfg *app.Config) *cobra.Command {
 			"A repository directly under --base-dir has no group. Hidden directories and directory symlinks are skipped.\n" +
 			"--branch defaults to master and is not checked against the server. --file defaults to release-align.yml and must not already exist.\n" +
 			"An omitted --gitlab-url uses the last --base-dir component when that name is a DNS host.\n" +
+			"An omitted --gitlab-group list is filled from the first path segment of origins on that host.\n" +
 			"Clones that are not on disk are omitted. Review the file before sync.",
 		Args: cobra.NoArgs,
 		RunE: handler.run,
@@ -83,31 +90,52 @@ func newWorkspaceCommand(cfg *app.Config) *cobra.Command {
 		&options.GitLabGroups,
 		"gitlab-group",
 		nil,
-		"GitLab group path to save; repeatable; no API call",
+		"GitLab group path to save; repeatable; omitted flag uses origins on the saved host; no API call",
 	)
 	command.AddCommand(newSyncCommand(cfg))
 	command.AddCommand(newStatusCommand(cfg))
 	command.AddCommand(initCommand)
-	command.AddCommand(newWorkspaceRefreshCommand())
-	command.AddCommand(newWorkspaceCloneCommand())
-	command.AddCommand(newWorkspaceArchiveCommand())
+	command.AddCommand(newWorkspaceRefreshCommand(cfg))
+	command.AddCommand(newWorkspaceStashCommand(cfg))
+	command.AddCommand(newWorkspaceCloneCommand(cfg))
+	command.AddCommand(newWorkspaceArchiveCommand(cfg))
 
 	return command
 }
 
-// run scans first, validates the complete document, and only then creates the destination.
+// run refuses an existing destination, scans, checks the destination again, and then creates it.
 func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 	if err := c.resolveBaseDir(command); err != nil {
 		return err
 	}
 
-	defaults := app.DefaultConfig()
+	if err := app.AbsentWorkspaceFile(c.file); err != nil {
+		return &commandError{
+			code:  exitFailed,
+			cause: err,
+		}
+	}
+
+	if err := applyCommandEnv(command, c.cfg); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	if err := c.cfg.TakeLogLevel(durationLocked(command, "log-level", "LOG_LEVEL"), ""); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
 	client := &gitter.Client{
-		LocalTimeout: defaults.LocalTimeout,
+		LocalTimeout: c.cfg.LocalTimeout,
 		NoLazyFetch:  true,
 	}
 
-	ctx := withCommandLog(command, false, defaults.LogLevel)
+	ctx := withCommandLog(command, false, c.cfg.LogLevel)
 
 	spec, err := app.ScanWorkspace(ctx, client, c.options)
 	if err != nil {
@@ -121,6 +149,14 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		return err
 	}
 
+	if err = app.AbsentWorkspaceFile(c.file); err != nil {
+		return &commandError{
+			code:  exitFailed,
+			cause: err,
+		}
+	}
+
+	spec.LogLevel = c.cfg.LogLevel
 	if err = app.CreateWorkspaceFile(c.file, spec); err != nil {
 		return &commandError{
 			code:  exitFailed,
@@ -128,7 +164,12 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		}
 	}
 
-	_, err = fmt.Fprintf(
+	return c.printInitNotes(command, spec)
+}
+
+// printInitNotes reports what was written and which GitLab fields were inferred.
+func (c *workspaceInitCommand) printInitNotes(command *cobra.Command, spec *app.WorkspaceSpec) error {
+	_, err := fmt.Fprintf(
 		command.OutOrStdout(),
 		"Created %s: %d local repositories. Review the inventory before synchronization.\n",
 		c.file,
@@ -143,6 +184,21 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 
 	if spec.GitLabURLFromBase {
 		_, err = fmt.Fprintf(command.OutOrStdout(), gitlabURLFromBaseNotice, spec.GitLab.URL)
+		if err != nil {
+			return &commandError{
+				code:  exitFailed,
+				cause: err,
+			}
+		}
+	}
+
+	if len(c.options.GitLabGroups) == 0 && spec.GitLab != nil && len(spec.GitLab.Groups) > 0 {
+		_, err = fmt.Fprintf(
+			command.OutOrStdout(),
+			gitlabGroupsFromOriginsNotice,
+			spec.GitLab.URL,
+			strings.Join(spec.GitLab.Groups, ", "),
+		)
 		if err != nil {
 			return &commandError{
 				code:  exitFailed,

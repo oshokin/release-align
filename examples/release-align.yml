@@ -15,6 +15,7 @@ manifest:
 
 release-align:
   schema-version: 1
+  log-level: info
   release: Lamiona 26.3.0
   gitlab:
     url: https://git.example.com

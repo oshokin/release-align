@@ -37,7 +37,7 @@ func (w *WorkspaceSpec) Validate() error {
 		}
 	}
 
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 	for _, p := range w.Projects {
 		if err := w.validateProject(p, seen); err != nil {
 			return err
@@ -49,27 +49,35 @@ func (w *WorkspaceSpec) Validate() error {
 
 // validateNames rejects an empty, slashed, reserved, or repeated west name.
 func (w *WorkspaceSpec) validateNames() error {
-	seen := make(map[string]bool, len(w.Projects))
+	seen := make(map[string]struct{}, len(w.Projects))
 
 	for _, project := range w.Projects {
 		if project == nil || project.Name == "" || project.Name == reservedProjectName ||
-			strings.ContainsAny(project.Name, `/\`) || seen[project.Name] {
+			strings.ContainsAny(project.Name, `/\`) {
 			return errWorkspaceName
 		}
 
-		seen[project.Name] = true
+		if _, duplicate := seen[project.Name]; duplicate {
+			return errWorkspaceName
+		}
+
+		seen[project.Name] = struct{}{}
 	}
 
 	return nil
 }
 
 // validateProject checks one project path, revision, and group list.
-func (w *WorkspaceSpec) validateProject(p *ProjectSpec, seen map[string]bool) error {
-	if p == nil || !canonicalProjectPath(p.Path) || seen[p.Path] {
+func (w *WorkspaceSpec) validateProject(p *ProjectSpec, seen map[string]struct{}) error {
+	if p == nil || !canonicalProjectPath(p.Path) {
 		return errWorkspaceProjectPaths
 	}
 
-	seen[p.Path] = true
+	if _, duplicate := seen[p.Path]; duplicate {
+		return errWorkspaceProjectPaths
+	}
+
+	seen[p.Path] = struct{}{}
 
 	if err := w.validateProjectRevision(p); err != nil {
 		return err
@@ -97,22 +105,23 @@ func (w *WorkspaceSpec) validateProjectRevision(p *ProjectSpec) error {
 
 // validateProjectGroups rejects empty, repeated, or multiline group names.
 func (w *WorkspaceSpec) validateProjectGroups(p *ProjectSpec) error {
-	groups := make(map[string]bool)
+	groups := make(map[string]struct{})
 
 	for _, group := range p.Groups {
 		if !w.acceptableGroup(group, groups) {
 			return fmt.Errorf("%s: %w", p.Path, errWorkspaceGroup)
 		}
 
-		groups[group] = true
+		groups[group] = struct{}{}
 	}
 
 	return nil
 }
 
 // acceptableGroup reports a group name that can be stored.
-func (*WorkspaceSpec) acceptableGroup(group string, seen map[string]bool) bool {
-	if group == "" || strings.TrimSpace(group) != group || seen[group] {
+func (*WorkspaceSpec) acceptableGroup(group string, seen map[string]struct{}) bool {
+	_, found := seen[group]
+	if group == "" || strings.TrimSpace(group) != group || found {
 		return false
 	}
 

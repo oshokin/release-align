@@ -7,6 +7,18 @@ import (
 	"github.com/oshokin/release-align/internal/gitlab"
 )
 
+// remotePlace is one catalog path and how it sits on disk.
+type remotePlace struct {
+	// path is the GitLab path_with_namespace.
+	path string
+	// matches are local clones whose origin is this project.
+	matches []string
+	// exists reports a directory at that workspace path.
+	exists bool
+	// empty reports a project that has no default branch.
+	empty bool
+}
+
 // remoteDiffQuery is the input for one catalog classification.
 type remoteDiffQuery struct {
 	// spec is the workspace inventory. It may be nil when only case folding is probed.
@@ -36,9 +48,9 @@ type remoteDiff struct {
 	// allowLocal matches filesystem clone URLs.
 	allowLocal bool
 	// seen records API paths so leftovers can be computed.
-	seen map[string]bool
+	seen map[string]struct{}
 	// blocked records paths that must not be cloned.
-	blocked map[string]bool
+	blocked map[string]struct{}
 	// catalog is the diff being filled.
 	catalog *RemoteCatalog
 }
@@ -46,7 +58,7 @@ type remoteDiff struct {
 // newRemoteDiff indexes local origins before any project is classified.
 func newRemoteDiff(query *remoteDiffQuery) *remoteDiff {
 	if query == nil {
-		query = &remoteDiffQuery{}
+		query = new(remoteDiffQuery)
 	}
 
 	diff := &remoteDiff{
@@ -54,8 +66,8 @@ func newRemoteDiff(query *remoteDiffQuery) *remoteDiff {
 		base:       query.base,
 		roots:      query.roots,
 		allowLocal: query.allowLocal,
-		seen:       make(map[string]bool, query.count),
-		blocked:    make(map[string]bool),
+		seen:       make(map[string]struct{}, query.count),
+		blocked:    make(map[string]struct{}),
 		catalog:    emptyCatalog(),
 		byKey:      make(map[string][]string),
 		byOrigin:   make(map[string][]string),
@@ -82,7 +94,11 @@ func (d *remoteDiff) leftovers() {
 	}
 
 	for _, project := range d.spec.Projects {
-		if project == nil || d.seen[project.Path] {
+		if project == nil {
+			continue
+		}
+
+		if _, found := d.seen[project.Path]; found {
 			continue
 		}
 
@@ -114,9 +130,10 @@ func (d *remoteDiff) classify(project *gitlab.Project) {
 	}
 
 	path := project.PathWithNamespace
-	d.seen[path] = true
+	d.seen[path] = struct{}{}
 
-	if !canonicalProjectPath(path) || d.blocked[path] {
+	_, blockedPath := d.blocked[path]
+	if !canonicalProjectPath(path) || blockedPath {
 		d.catalog.Conflicts = append(d.catalog.Conflicts, path)
 
 		return
@@ -128,14 +145,27 @@ func (d *remoteDiff) classify(project *gitlab.Project) {
 
 	matches := d.matches(project)
 	exists := d.targetExists(path)
-	d.place(path, matches, exists, project.DefaultBranch == "")
+	placed := &remotePlace{
+		path:    path,
+		matches: matches,
+		exists:  exists,
+		empty:   project.DefaultBranch == "",
+	}
+	d.place(placed)
 }
 
 // place applies the disk match. An empty default branch is not offered as a normal clone.
-func (d *remoteDiff) place(path string, matches []string, exists, empty bool) {
+func (d *remoteDiff) place(placed *remotePlace) {
+	if placed == nil {
+		return
+	}
+
+	path := placed.path
+	matches := placed.matches
+
 	if len(matches) > 1 || (len(matches) == 1 && matches[0] != path) {
 		d.catalog.DifferentPath = append(d.catalog.DifferentPath, path)
-		if exists {
+		if placed.exists {
 			d.catalog.Conflicts = append(d.catalog.Conflicts, path)
 		}
 
@@ -150,30 +180,30 @@ func (d *remoteDiff) place(path string, matches []string, exists, empty bool) {
 		return
 	}
 
-	if exists {
+	if placed.exists {
 		d.catalog.Conflicts = append(d.catalog.Conflicts, path)
 
 		return
 	}
 
-	if !empty {
+	if !placed.empty {
 		d.catalog.NotCloned = append(d.catalog.NotCloned, path)
 	}
 }
 
 // matches returns local relative paths whose origin is this project.
 func (d *remoteDiff) matches(project *gitlab.Project) []string {
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 	found := make([]string, 0)
 	urls := []string{project.SSHURLToRepo, project.HTTPURLToRepo}
 
 	for _, raw := range urls {
 		if key, ok := parseRemote(raw); ok {
-			d.collect(d.byKey[d.remoteID(key)], seen, &found)
+			found = d.collect(d.byKey[d.remoteID(key)], seen, found)
 		}
 
 		if d.allowLocal {
-			d.collect(d.byOrigin[d.cleanLocal(raw)], seen, &found)
+			found = d.collect(d.byOrigin[d.cleanLocal(raw)], seen, found)
 		}
 	}
 
@@ -182,16 +212,18 @@ func (d *remoteDiff) matches(project *gitlab.Project) []string {
 	return found
 }
 
-// collect appends unseen paths.
-func (d *remoteDiff) collect(paths []string, seen map[string]bool, found *[]string) {
+// collect appends unseen paths and returns the list.
+func (d *remoteDiff) collect(paths []string, seen map[string]struct{}, found []string) []string {
 	for _, path := range paths {
-		if seen[path] {
+		if _, ok := seen[path]; ok {
 			continue
 		}
 
-		seen[path] = true
-		*found = append(*found, path)
+		seen[path] = struct{}{}
+		found = append(found, path)
 	}
+
+	return found
 }
 
 // addOrigin indexes one local clone by transport identity and, in tests, by path.

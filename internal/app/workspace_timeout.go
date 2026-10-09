@@ -11,6 +11,10 @@ type TimeoutLocks struct {
 	Probe bool
 	// Fetch is set when fetch timeout must not come from the workspace file.
 	Fetch bool
+	// Catalog is set when the GitLab page timeout must not come from the workspace file.
+	Catalog bool
+	// CatalogBudget is set when the GitLab listing budget must not come from the workspace file.
+	CatalogBudget bool
 	// Local is set when local timeout must not come from the workspace file.
 	Local bool
 	// Clone is set when clone timeout must not come from the workspace file.
@@ -23,8 +27,12 @@ type TimeoutLocks struct {
 type WorkspaceTimeouts struct {
 	// Probe limits a reachability attempt.
 	Probe *string `json:"probe,omitempty"`
-	// Fetch limits a fetch or the complete GitLab inventory request.
+	// Fetch limits a fetch.
 	Fetch *string `json:"fetch,omitempty"`
+	// Catalog limits one GitLab projects page.
+	Catalog *string `json:"catalog,omitempty"`
+	// CatalogBudget limits one GitLab group listing.
+	CatalogBudget *string `json:"catalog-budget,omitempty"`
 	// Local limits one short local Git command.
 	Local *string `json:"local,omitempty"`
 	// Clone limits one repository clone.
@@ -45,6 +53,10 @@ const (
 	timeoutProbe = "probe"
 	// timeoutFetch is the workspace key for a fetch override.
 	timeoutFetch = "fetch"
+	// timeoutCatalog is the workspace key for a GitLab page override.
+	timeoutCatalog = "catalog"
+	// timeoutCatalogBudget is the workspace key for a GitLab listing override.
+	timeoutCatalogBudget = "catalog-budget"
 	// timeoutLocal is the workspace key for a local-command override.
 	timeoutLocal = "local"
 	// timeoutClone is the workspace key for a clone override.
@@ -83,6 +95,21 @@ func ApplySpecTimeouts(cfg *Config, spec *WorkspaceSpec) error {
 		return err
 	}
 
+	catalog, err := unlockedDuration(locks.Catalog, timeoutCatalog, spec.Timeouts.Catalog, cfg.CatalogTimeout)
+	if err != nil {
+		return err
+	}
+
+	budget, err := unlockedDuration(
+		locks.CatalogBudget,
+		timeoutCatalogBudget,
+		spec.Timeouts.CatalogBudget,
+		cfg.CatalogBudget,
+	)
+	if err != nil {
+		return err
+	}
+
 	local, err := unlockedDuration(locks.Local, "local", spec.Timeouts.Local, cfg.LocalTimeout)
 	if err != nil {
 		return err
@@ -100,6 +127,8 @@ func ApplySpecTimeouts(cfg *Config, spec *WorkspaceSpec) error {
 
 	cfg.ProbeTimeout = probe
 	cfg.FetchTimeout = fetch
+	cfg.CatalogTimeout = catalog
+	cfg.CatalogBudget = budget
 	cfg.LocalTimeout = local
 	cfg.CloneTimeout = clone
 	cfg.ArchiveTimeout = archive
@@ -128,6 +157,21 @@ func (j *cloneJob) applyCloneTimeouts(opts *WorkspaceCloneOptions, spec *Workspa
 		return err
 	}
 
+	catalog, err := unlockedDuration(locks.Catalog, timeoutCatalog, spec.Timeouts.Catalog, opts.CatalogTimeout)
+	if err != nil {
+		return err
+	}
+
+	budget, err := unlockedDuration(
+		locks.CatalogBudget,
+		timeoutCatalogBudget,
+		spec.Timeouts.CatalogBudget,
+		opts.CatalogBudget,
+	)
+	if err != nil {
+		return err
+	}
+
 	local, err := unlockedDuration(locks.Local, "local", spec.Timeouts.Local, opts.LocalTimeout)
 	if err != nil {
 		return err
@@ -140,6 +184,8 @@ func (j *cloneJob) applyCloneTimeouts(opts *WorkspaceCloneOptions, spec *Workspa
 
 	opts.ProbeTimeout = probe
 	opts.FetchTimeout = fetch
+	opts.CatalogTimeout = catalog
+	opts.CatalogBudget = budget
 	opts.LocalTimeout = local
 	opts.CloneTimeout = clone
 
@@ -182,6 +228,8 @@ func (t *WorkspaceTimeouts) Validate() error {
 	fields := []*timeoutField{
 		{name: timeoutProbe, value: t.Probe},
 		{name: timeoutFetch, value: t.Fetch},
+		{name: timeoutCatalog, value: t.Catalog},
+		{name: timeoutCatalogBudget, value: t.CatalogBudget},
 		{name: timeoutLocal, value: t.Local},
 		{name: timeoutClone, value: t.Clone},
 		{name: timeoutArchive, value: t.Archive},
@@ -203,11 +251,13 @@ func (t *WorkspaceTimeouts) clone() *WorkspaceTimeouts {
 	}
 
 	return &WorkspaceTimeouts{
-		Probe:   t.cloneTimeoutString(t.Probe),
-		Fetch:   t.cloneTimeoutString(t.Fetch),
-		Local:   t.cloneTimeoutString(t.Local),
-		Clone:   t.cloneTimeoutString(t.Clone),
-		Archive: t.cloneTimeoutString(t.Archive),
+		Probe:         t.cloneTimeoutString(t.Probe),
+		Fetch:         t.cloneTimeoutString(t.Fetch),
+		Catalog:       t.cloneTimeoutString(t.Catalog),
+		CatalogBudget: t.cloneTimeoutString(t.CatalogBudget),
+		Local:         t.cloneTimeoutString(t.Local),
+		Clone:         t.cloneTimeoutString(t.Clone),
+		Archive:       t.cloneTimeoutString(t.Archive),
 	}
 }
 

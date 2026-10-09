@@ -27,8 +27,12 @@ type WorkspaceCloneOptions struct {
 	ProbeTimeout time.Duration
 	// RetryDelay is the pause between probe attempts.
 	RetryDelay time.Duration
-	// FetchTimeout is the budget for the whole GitLab catalog.
+	// FetchTimeout is kept for commands that still name a fetch budget.
 	FetchTimeout time.Duration
+	// CatalogTimeout limits one GitLab projects page.
+	CatalogTimeout time.Duration
+	// CatalogBudget limits one GitLab group listing.
+	CatalogBudget time.Duration
 	// LocalTimeout limits Git commands that do not talk to a remote.
 	LocalTimeout time.Duration
 	// CloneTimeout limits one git clone.
@@ -187,7 +191,8 @@ func validateCloneOptions(opts *WorkspaceCloneOptions) error {
 		return errCloneSelection
 	}
 
-	if opts.Attempts < 1 || opts.ProbeTimeout <= 0 || opts.FetchTimeout <= 0 || opts.CloneTimeout <= 0 {
+	if opts.Attempts < 1 || opts.ProbeTimeout <= 0 || opts.FetchTimeout <= 0 || opts.CloneTimeout <= 0 ||
+		opts.CatalogTimeout <= 0 || opts.CatalogBudget <= 0 {
 		return errTimeoutRange
 	}
 
@@ -331,16 +336,18 @@ func (j *cloneJob) prepareCloneSource(opts *WorkspaceCloneOptions, spec *Workspa
 // cloneConfig carries timeouts into the shared GitLab client helper.
 func (j *cloneJob) cloneConfig(opts *WorkspaceCloneOptions, base string) *Config {
 	cfg := &Config{
-		BaseDir:       base,
-		ProbeTimeout:  opts.ProbeTimeout,
-		FetchTimeout:  opts.FetchTimeout,
-		Attempts:      opts.Attempts,
-		RetryDelay:    opts.RetryDelay,
-		LocalTimeout:  opts.LocalTimeout,
-		Remote:        true,
-		remoteHooks:   opts.hooks,
-		progress:      opts.progress,
-		WorkspaceFile: opts.WorkspaceFile,
+		BaseDir:        base,
+		ProbeTimeout:   opts.ProbeTimeout,
+		FetchTimeout:   opts.FetchTimeout,
+		CatalogTimeout: opts.CatalogTimeout,
+		CatalogBudget:  opts.CatalogBudget,
+		Attempts:       opts.Attempts,
+		RetryDelay:     opts.RetryDelay,
+		LocalTimeout:   opts.LocalTimeout,
+		Remote:         true,
+		remoteHooks:    opts.hooks,
+		progress:       opts.progress,
+		WorkspaceFile:  opts.WorkspaceFile,
 	}
 
 	return cfg

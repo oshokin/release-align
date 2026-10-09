@@ -22,10 +22,34 @@ type envDurationValue struct {
 	present bool
 }
 
+// envBoolValue is one boolean taken from the environment.
+type envBoolValue struct {
+	// value is the parsed flag.
+	value bool
+	// present reports that the variable was set.
+	present bool
+}
+
 const (
 	// EnvPrefix marks release-align settings in the process environment.
 	// GITLAB_TOKEN stays unprefixed: it is a container credential, not a program setting.
 	EnvPrefix = "RELEASE_ALIGN_"
+	// envFetchTimeout is the suffix for one fetch.
+	envFetchTimeout = "FETCH_TIMEOUT"
+	// envCatalogTimeout is the suffix for one GitLab page.
+	envCatalogTimeout = "CATALOG_TIMEOUT"
+	// envCatalogBudget is the suffix for one GitLab group listing.
+	envCatalogBudget = "CATALOG_BUDGET"
+	// envProbeTimeout is the suffix for one reachability probe.
+	envProbeTimeout = "PROBE_TIMEOUT"
+	// envLocalTimeout is the suffix for one local Git command.
+	envLocalTimeout = "LOCAL_TIMEOUT"
+	// envRetryDelay is the suffix for the pause between probes.
+	envRetryDelay = "RETRY_DELAY"
+	// envCloneTimeout is the suffix for one clone.
+	envCloneTimeout = "CLONE_TIMEOUT"
+	// envArchiveTimeout is the suffix for one archive.
+	envArchiveTimeout = "ARCHIVE_TIMEOUT"
 )
 
 // Env returns the process variable for one release-align setting.
@@ -85,7 +109,7 @@ func (c *Config) applyIntEnv(getenv func(string) string) error {
 
 // envInt parses one integer variable. ok is false when the variable is empty.
 func (*Config) envInt(getenv func(string) string, key string) (*envIntValue, error) {
-	parsed := &envIntValue{}
+	parsed := new(envIntValue)
 
 	s := getenv(key)
 	if s == "" {
@@ -103,79 +127,99 @@ func (*Config) envInt(getenv func(string) string, key string) (*envIntValue, err
 	return parsed, nil
 }
 
-// applyBoolEnv copies DRY_RUN when the variable is set.
+// applyBoolEnv copies boolean settings when their variables are set.
 func (c *Config) applyBoolEnv(getenv func(string) string) error {
-	key := "DRY_RUN"
-
-	s := getenv(key)
-	if s == "" {
-		return nil
-	}
-
-	b, err := strconv.ParseBool(s)
+	dry, err := c.envBool(getenv, "DRY_RUN")
 	if err != nil {
-		return fmt.Errorf("%s: %w", Env(key), err)
+		return err
 	}
 
-	c.DryRun = b
+	if dry.present {
+		c.DryRun = dry.value
+	}
+
+	ignored, err := c.envBool(getenv, "IGNORE_ERRORS")
+	if err != nil {
+		return err
+	}
+
+	if ignored.present {
+		c.IgnoreErrors = ignored.value
+	}
 
 	return nil
 }
 
+// envBool parses one boolean variable. present is false when the variable is empty.
+func (*Config) envBool(getenv func(string) string, key string) (*envBoolValue, error) {
+	parsed := new(envBoolValue)
+
+	s := getenv(key)
+	if s == "" {
+		return parsed, nil
+	}
+
+	value, err := strconv.ParseBool(s)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", Env(key), err)
+	}
+
+	parsed.value = value
+	parsed.present = true
+
+	return parsed, nil
+}
+
 // applyDurationEnv copies timeouts. A value must include a Go unit.
 func (c *Config) applyDurationEnv(getenv func(string) string) error {
-	fetch, err := c.envDuration(getenv, "FETCH_TIMEOUT")
+	keys := []string{
+		envFetchTimeout,
+		envCatalogTimeout,
+		envCatalogBudget,
+		envProbeTimeout,
+		envLocalTimeout,
+		envRetryDelay,
+		envCloneTimeout,
+		envArchiveTimeout,
+	}
+
+	for _, key := range keys {
+		if err := c.applyOneDuration(getenv, key); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applyOneDuration copies one timeout when its variable is set.
+func (c *Config) applyOneDuration(getenv func(string) string, key string) error {
+	parsed, err := c.envDuration(getenv, key)
 	if err != nil {
 		return err
 	}
 
-	if fetch.present {
-		c.FetchTimeout = fetch.value
+	if !parsed.present {
+		return nil
 	}
 
-	probe, err := c.envDuration(getenv, "PROBE_TIMEOUT")
-	if err != nil {
-		return err
-	}
-
-	if probe.present {
-		c.ProbeTimeout = probe.value
-	}
-
-	local, err := c.envDuration(getenv, "LOCAL_TIMEOUT")
-	if err != nil {
-		return err
-	}
-
-	if local.present {
-		c.LocalTimeout = local.value
-	}
-
-	delay, err := c.envDuration(getenv, "RETRY_DELAY")
-	if err != nil {
-		return err
-	}
-
-	if delay.present {
-		c.RetryDelay = delay.value
-	}
-
-	clone, err := c.envDuration(getenv, "CLONE_TIMEOUT")
-	if err != nil {
-		return err
-	}
-
-	if clone.present {
-		c.CloneTimeout = clone.value
-	}
-
-	archive, err := c.envDuration(getenv, "ARCHIVE_TIMEOUT")
-	if err != nil {
-		return err
-	}
-
-	if archive.present {
-		c.ArchiveTimeout = archive.value
+	switch key {
+	case envFetchTimeout:
+		c.FetchTimeout = parsed.value
+	case envCatalogTimeout:
+		c.CatalogTimeout = parsed.value
+	case envCatalogBudget:
+		c.CatalogBudget = parsed.value
+	case envProbeTimeout:
+		c.ProbeTimeout = parsed.value
+	case envLocalTimeout:
+		c.LocalTimeout = parsed.value
+	case envRetryDelay:
+		c.RetryDelay = parsed.value
+	case envCloneTimeout:
+		c.CloneTimeout = parsed.value
+	case envArchiveTimeout:
+		c.ArchiveTimeout = parsed.value
 	}
 
 	return nil
@@ -183,7 +227,7 @@ func (c *Config) applyDurationEnv(getenv func(string) string) error {
 
 // envDuration parses one duration variable. ok is false when the variable is empty.
 func (*Config) envDuration(getenv func(string) string, key string) (*envDurationValue, error) {
-	parsed := &envDurationValue{}
+	parsed := new(envDurationValue)
 
 	s := getenv(key)
 	if s == "" {

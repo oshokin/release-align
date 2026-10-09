@@ -335,6 +335,26 @@ func TestCompareMatrix(t *testing.T) {
 	}
 }
 
+func TestGitLabCatalogTimeoutsAreNotTheProbe(t *testing.T) {
+	cfg := DefaultConfig()
+	source := &GitLabSource{
+		URL: "https://gitlab.example",
+	}
+	client := gitlabClient(cfg, source)
+
+	if client.AttemptTimeout != cfg.CatalogTimeout || client.Budget != cfg.CatalogBudget {
+		t.Fatalf("attempt %s budget %s", client.AttemptTimeout, client.Budget)
+	}
+
+	cfg.CatalogTimeout = 15 * time.Second
+	cfg.CatalogBudget = 10 * time.Minute
+
+	longer := gitlabClient(cfg, source)
+	if longer.Budget != 10*time.Minute || longer.AttemptTimeout != 15*time.Second {
+		t.Fatalf("attempt %s budget %s", longer.AttemptTimeout, longer.Budget)
+	}
+}
+
 func catalogServer(t *testing.T, projects []*gitlab.Project) *httptest.Server {
 	t.Helper()
 

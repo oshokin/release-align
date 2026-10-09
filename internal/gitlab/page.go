@@ -150,10 +150,12 @@ func (c *Client) doFetch(ctx context.Context, group string, page int) (*pageResu
 	}
 
 	req.Header.Set("Private-Token", c.Token)
-	logger.Infof(ctx, "GitLab GET %s", endpoint.path)
+	logger.Infof(ctx, "GitLab GET %s page %d", endpoint.path, page)
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
+		logger.Warnf(ctx, "GitLab GET %s page %d: %v", endpoint.path, page, err)
+
 		return nil, err
 	}
 
@@ -287,8 +289,9 @@ func (c *Client) totalPages(header http.Header) int {
 }
 
 // noteGitLabPage records one listed page. The first page learns the total when the server sends it.
+// A group that fits on one page is not given a 1/1 progress line. The GET line already names it.
 func (c *Client) noteGitLabPage(ctx context.Context, note *gitLabPageNote) {
-	if note == nil || note.result == nil {
+	if note == nil || note.result == nil || c.oneGitLabPage(note) {
 		return
 	}
 
@@ -302,6 +305,15 @@ func (c *Client) noteGitLabPage(ctx context.Context, note *gitLabPageNote) {
 	}
 
 	note.progress.Advance(ctx, note.group, "page listed")
+}
+
+// oneGitLabPage reports a listing that finished on its first page.
+func (*Client) oneGitLabPage(note *gitLabPageNote) bool {
+	if note == nil || note.result == nil || note.page != 1 || note.result.next != 0 {
+		return false
+	}
+
+	return note.result.pages <= 1
 }
 
 // rateLimit stops when Retry-After is longer than the remaining catalog budget.

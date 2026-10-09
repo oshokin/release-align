@@ -15,6 +15,8 @@ type WorkspaceSpec struct {
 	Release string
 	// BaseDir is the absolute root recorded by workspace init.
 	BaseDir string
+	// LogLevel is the text log level stored in the workspace. Empty keeps the built-in default.
+	LogLevel string
 	// DefaultRevision is the inherited revision. Nil with implicitMaster means west's master.
 	DefaultRevision *RevisionSpec
 	// shortDefault is a defaults.revision that still needs a local ref lookup.
@@ -174,8 +176,8 @@ func (w *WorkspaceSpec) WithDefaultBranch(branch string) (*WorkspaceSpec, error)
 }
 
 // disabledGroups applies group-filter in order. The last entry for a name wins.
-func (w *WorkspaceSpec) disabledGroups(filters []*GroupFilter) map[string]bool {
-	disabled := make(map[string]bool)
+func (w *WorkspaceSpec) disabledGroups(filters []*GroupFilter) map[string]struct{} {
+	disabled := make(map[string]struct{})
 
 	for _, filter := range filters {
 		if filter == nil {
@@ -183,7 +185,7 @@ func (w *WorkspaceSpec) disabledGroups(filters []*GroupFilter) map[string]bool {
 		}
 
 		if filter.Disable {
-			disabled[filter.Name] = true
+			disabled[filter.Name] = struct{}{}
 
 			continue
 		}
@@ -246,17 +248,17 @@ func (w *WorkspaceSpec) hasDefault() bool {
 // checkSelection rejects unknown selectors and an explicit inactive project or group.
 func (w *WorkspaceSpec) checkSelection(paths, groups []string) error {
 	knownPaths := make(map[string]*ProjectSpec, len(w.Projects))
-	knownGroups := make(map[string]bool)
-	activeGroups := make(map[string]bool)
+	knownGroups := make(map[string]struct{})
+	activeGroups := make(map[string]struct{})
 
 	for _, p := range w.Projects {
 		knownPaths[p.Path] = p
 		active := w.projectActive(p)
 
 		for _, group := range p.Groups {
-			knownGroups[group] = true
+			knownGroups[group] = struct{}{}
 			if active {
-				activeGroups[group] = true
+				activeGroups[group] = struct{}{}
 			}
 		}
 	}
@@ -273,11 +275,11 @@ func (w *WorkspaceSpec) checkSelection(paths, groups []string) error {
 	}
 
 	for _, name := range groups {
-		if !knownGroups[name] {
+		if _, known := knownGroups[name]; !known {
 			return fmt.Errorf("%w: %q", errWorkspaceUnknownGroup, name)
 		}
 
-		if !activeGroups[name] {
+		if _, active := activeGroups[name]; !active {
 			return fmt.Errorf("%w: %q", errWorkspaceInactive, name)
 		}
 	}
@@ -294,7 +296,7 @@ func (w *WorkspaceSpec) projectActive(project *ProjectSpec) bool {
 
 	disabled := w.disabledGroups(w.GroupFilter)
 	for _, group := range project.Groups {
-		if !disabled[group] {
+		if _, off := disabled[group]; !off {
 			return true
 		}
 	}

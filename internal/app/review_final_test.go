@@ -49,7 +49,7 @@ func (r *stallReader) Read(p []byte) (int, error) {
 // TestReviewArchiveRelativeDestination covers the documented CLI path shape.
 func TestReviewArchiveRelativeDestination(t *testing.T) {
 	f := setup(t)
-	file := writeWorkspace(t, f.base, archiveProject(f, nil))
+	file := writeWorkspace(t, f.base, archiveProject(nil))
 	t.Chdir(t.TempDir())
 	in := &archiveOptInput{fixture: f, workspace: file, dest: "./out.zip"}
 	opts := archiveOpts(in)
@@ -83,7 +83,7 @@ func TestReviewArchiveRejectsOrdinarySubdirectory(t *testing.T) {
 	git(t, f.repo, "add", "ordinary")
 	git(t, f.repo, "commit", "-m", "ordinary directory")
 	git(t, f.repo, "push", "origin", "HEAD:master")
-	spec := archiveProject(f, nil)
+	spec := archiveProject(nil)
 	spec.Projects[0].Path += "/ordinary"
 	file := writeWorkspace(t, f.base, spec)
 	dest := filepath.Join(f.base, "wrong-root.zip")
@@ -172,7 +172,7 @@ func TestReviewArchiveCopyDeadline(t *testing.T) {
 func TestReviewRefreshUsesWorkspaceLocalTimeout(t *testing.T) {
 	f := setup(t)
 	local := "1ns"
-	spec := archiveProject(f, nil)
+	spec := archiveProject(nil)
 	spec.Timeouts = &WorkspaceTimeouts{
 		Local: &local,
 	}

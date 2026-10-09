@@ -105,7 +105,7 @@ func TestFinishExclusiveRemovesIncompleteFile(t *testing.T) {
 		},
 		{
 			name: "short",
-			file: &shortWriteCloser{},
+			file: new(shortWriteCloser),
 			want: io.ErrShortWrite,
 		},
 		{

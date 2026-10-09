@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
+	"testing/synctest"
 
 	"go.uber.org/zap/zapcore"
 )
@@ -16,17 +16,17 @@ func TestWriterSerializesConcurrentRepositoryLogs(t *testing.T) {
 
 	var out bytes.Buffer
 
-	ctx := ToContext(t.Context(), NewWithWriter(zapcore.InfoLevel, &out))
+	synctest.Test(t, func(t *testing.T) {
+		ctx := ToContext(t.Context(), NewWithWriter(zapcore.InfoLevel, &out))
 
-	var wg sync.WaitGroup
+		for i := range 32 {
+			go func() {
+				InfoKV(ctx, fmt.Sprintf("message-%02d", i), "repo", fmt.Sprintf("group/repo-%02d", i))
+			}()
+		}
 
-	for i := range 32 {
-		wg.Go(func() {
-			InfoKV(ctx, fmt.Sprintf("message-%02d", i), "repo", fmt.Sprintf("group/repo-%02d", i))
-		})
-	}
-
-	wg.Wait()
+		synctest.Wait()
+	})
 
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 32 {

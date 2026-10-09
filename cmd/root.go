@@ -56,6 +56,13 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	root.SetErr(errOut)
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.SetFlagErrorFunc(usageFlagError)
+	root.PersistentFlags().StringVarP(
+		&cfg.LogLevel,
+		"log-level",
+		"l",
+		cfg.LogLevel,
+		"log level: debug, info, warn, error (any case)",
+	)
 
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newWorkspaceCommand(cfg))
@@ -155,7 +162,6 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 		cfg.DryRun,
 		"offline preview using cached refs; do not change repositories",
 	)
-	flags.StringVarP(&cfg.LogLevel, "log-level", "l", cfg.LogLevel, "log level: debug, info, warn, error (any case)")
 	flags.StringVar(
 		&cfg.WorkspaceFile,
 		"workspace",
@@ -173,11 +179,18 @@ func bindFlags(root *cobra.Command, cfg *app.Config) {
 	)
 	flags.DurationVar(&cfg.ProbeTimeout, "probe-timeout", cfg.ProbeTimeout, "timeout per git ls-remote probe")
 	flags.DurationVar(&cfg.RetryDelay, "retry-delay", cfg.RetryDelay, "delay between failed network probes")
+	flags.DurationVar(&cfg.FetchTimeout, "fetch-timeout", cfg.FetchTimeout, "timeout per fetch")
 	flags.DurationVar(
-		&cfg.FetchTimeout,
-		"fetch-timeout",
-		cfg.FetchTimeout,
-		"timeout per fetch and the GitLab catalog budget",
+		&cfg.CatalogTimeout,
+		"catalog-timeout",
+		cfg.CatalogTimeout,
+		"timeout of one GitLab projects page",
+	)
+	flags.DurationVar(
+		&cfg.CatalogBudget,
+		"catalog-budget",
+		cfg.CatalogBudget,
+		"deadline for one GitLab group listing",
 	)
 	flags.DurationVar(&cfg.LocalTimeout, "local-timeout", cfg.LocalTimeout, "timeout per local Git command")
 }

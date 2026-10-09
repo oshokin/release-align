@@ -115,7 +115,7 @@ func TestArchivePacksPinnedTrees(t *testing.T) {
 // TestArchiveKeepsThePlannedCommit moves the branch after planning.
 func TestArchiveKeepsThePlannedCommit(t *testing.T) {
 	f := setup(t)
-	file := writeWorkspace(t, f.base, archiveProject(f, nil))
+	file := writeWorkspace(t, f.base, archiveProject(nil))
 	dest := filepath.Join(f.base, "planned.zip")
 
 	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
@@ -164,7 +164,7 @@ func TestArchiveHonorsExportIgnoreAndModes(t *testing.T) {
 	git(t, f.repo, "commit", "-m", "attrs")
 	git(t, f.repo, "push", "origin", "HEAD:master")
 
-	file := writeWorkspace(t, f.base, archiveProject(f, nil))
+	file := writeWorkspace(t, f.base, archiveProject(nil))
 	dest := filepath.Join(f.base, "modes.zip")
 
 	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
@@ -202,7 +202,7 @@ func TestArchiveHonorsExportIgnoreAndModes(t *testing.T) {
 // TestArchiveFailurePublishesNothing covers a missing clone, a missing object, and an existing file.
 func TestArchiveFailurePublishesNothing(t *testing.T) {
 	f := setup(t)
-	spec := archiveProject(f, nil)
+	spec := archiveProject(nil)
 	missing := &ProjectSpec{
 		Path: "lamiona/missing",
 	}
@@ -224,7 +224,7 @@ func TestArchiveFailurePublishesNothing(t *testing.T) {
 	pinned := &RevisionSpec{
 		Commit: "0123456789abcdef0123456789abcdef01234567",
 	}
-	file = writeWorkspace(t, f.base, archiveProject(f, pinned))
+	file = writeWorkspace(t, f.base, archiveProject(pinned))
 	dest = filepath.Join(f.base, "absent.zip")
 
 	absent := &archiveOptInput{fixture: f, workspace: file, dest: dest}
@@ -242,7 +242,7 @@ func TestArchiveFailurePublishesNothing(t *testing.T) {
 	write(t, kept, "keep")
 	keptIn := &archiveOptInput{
 		fixture:   f,
-		workspace: writeWorkspace(t, f.base, archiveProject(f, nil)),
+		workspace: writeWorkspace(t, f.base, archiveProject(nil)),
 		dest:      kept,
 	}
 	_, err = ArchiveWorkspace(t.Context(), archiveOpts(keptIn))
@@ -255,7 +255,7 @@ func TestArchiveFailurePublishesNothing(t *testing.T) {
 // TestArchiveTimeoutAndCancel leave no ZIP behind.
 func TestArchiveTimeoutAndCancel(t *testing.T) {
 	f := setup(t)
-	file := writeWorkspace(t, f.base, archiveProject(f, nil))
+	file := writeWorkspace(t, f.base, archiveProject(nil))
 	dest := filepath.Join(f.base, "slow.zip")
 	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
 	opts := archiveOpts(in)
@@ -369,7 +369,7 @@ func TestArchiveLargeFileCopiesABlob(t *testing.T) {
 	git(t, f.repo, "commit", "-m", "blob")
 	git(t, f.repo, "push", "origin", "HEAD:master")
 
-	file := writeWorkspace(t, f.base, archiveProject(f, nil))
+	file := writeWorkspace(t, f.base, archiveProject(nil))
 	dest := filepath.Join(f.base, "blob.zip")
 
 	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
@@ -384,7 +384,7 @@ func TestArchiveLargeFileCopiesABlob(t *testing.T) {
 	}
 }
 
-func archiveProject(f *fixture, revision *RevisionSpec) *WorkspaceSpec {
+func archiveProject(revision *RevisionSpec) *WorkspaceSpec {
 	return &WorkspaceSpec{
 		SchemaVersion: 1,
 		DefaultRevision: &RevisionSpec{
@@ -506,7 +506,7 @@ func zipHas(t *testing.T, archive, name string) bool {
 func readManifest(t *testing.T, archive string) *archiveManifest {
 	t.Helper()
 
-	manifest := &archiveManifest{}
+	manifest := new(archiveManifest)
 
 	if err := json.Unmarshal([]byte(zipText(t, archive, archiveManifestDir+"/manifest.json")), manifest); err != nil {
 		t.Fatal(err)

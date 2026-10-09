@@ -128,31 +128,14 @@ func (c *Client) Clone(ctx context.Context, remote, dir string, timeout time.Dur
 	return err
 }
 
-// Fetch updates origin branches and tags without pruning local-only tags.
+// Fetch updates origin branches, then tags.
+// A tag that exists on origin replaces the local tag. A local-only tag is kept.
 func (c *Client) Fetch(ctx context.Context, dir string, timeout time.Duration) error {
-	// Explicit branch refspec; --tags does not put local-only tags under --prune.
-	// Override pruneTags even when enabled in global/remote configuration.
-	_, err := c.Run(
-		ctx,
-		dir,
-		timeout,
-		"-c",
-		"fetch.pruneTags=false",
-		"-c",
-		"remote.origin.pruneTags=false",
-		"fetch",
-		"--refmap=",
-		"--atomic",
-		"--prune",
-		"--no-prune-tags",
-		"--tags",
-		"--no-recurse-submodules",
-		"--quiet",
-		"origin",
-		"+refs/heads/*:refs/remotes/origin/*",
-	)
+	if err := c.fetchBranches(ctx, dir, timeout); err != nil {
+		return err
+	}
 
-	return err
+	return c.fetchTags(ctx, dir, timeout)
 }
 
 // Archive writes one revision to a ZIP file. It does not fetch or check out that revision.
@@ -241,6 +224,54 @@ func NetworkError(err error) bool {
 	}
 
 	return false
+}
+
+// fetchBranches updates origin branch refs and prunes deleted ones.
+// Tags are not part of this command, so a moved tag cannot roll the branches back.
+func (c *Client) fetchBranches(ctx context.Context, dir string, timeout time.Duration) error {
+	_, err := c.Run(
+		ctx,
+		dir,
+		timeout,
+		"-c",
+		"fetch.pruneTags=false",
+		"-c",
+		"remote.origin.pruneTags=false",
+		"fetch",
+		"--refmap=",
+		"--atomic",
+		"--prune",
+		"--no-prune-tags",
+		"--no-tags",
+		"--no-recurse-submodules",
+		"--quiet",
+		"origin",
+		"+refs/heads/*:refs/remotes/origin/*",
+	)
+
+	return err
+}
+
+// fetchTags copies origin tags over local tags of the same name.
+// A tag that exists only in this clone is left in place.
+func (c *Client) fetchTags(ctx context.Context, dir string, timeout time.Duration) error {
+	_, err := c.Run(
+		ctx,
+		dir,
+		timeout,
+		"-c",
+		"fetch.pruneTags=false",
+		"-c",
+		"remote.origin.pruneTags=false",
+		"fetch",
+		"--refmap=",
+		"--no-prune-tags",
+		"--no-recurse-submodules",
+		"origin",
+		"+refs/tags/*:refs/tags/*",
+	)
+
+	return err
 }
 
 // commandEnv isolates repository selection and applies noninteractive Git settings.

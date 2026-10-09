@@ -13,6 +13,30 @@ import (
 	"github.com/oshokin/release-align/internal/retry"
 )
 
+// clonePathQuery is the catalog slice this invocation may clone.
+type clonePathQuery struct {
+	// spec is the workspace inventory.
+	spec *WorkspaceSpec
+	// projects are the non-archived catalog entries.
+	projects []*gitlab.Project
+	// opts carries --repo or --all.
+	opts *WorkspaceCloneOptions
+	// byPath indexes the catalog by path_with_namespace.
+	byPath map[string]*gitlab.Project
+}
+
+// cloneChoiceQuery is one catalog path and the local inventory around it.
+type cloneChoiceQuery struct {
+	// spec is the workspace inventory.
+	spec *WorkspaceSpec
+	// project is the catalog entry. Nil when the path is not in the catalog index.
+	project *gitlab.Project
+	// path is the workspace path.
+	path string
+	// inventory is the disk comparison for this catalog.
+	inventory *RemoteInventory
+}
+
 // choose rejects unknown, conflicting, and empty selections before the first clone.
 func (j *cloneJob) choose(ctx context.Context, projects []*gitlab.Project) (*clonePick, error) {
 	query := &projectCompare{
@@ -35,7 +59,14 @@ func (j *cloneJob) choose(ctx context.Context, projects []*gitlab.Project) (*clo
 		}
 	}
 
-	pick, err := j.wantedClonePaths(j.spec, projects, j.opts, byPath)
+	pathQuery := &clonePathQuery{
+		spec:     j.spec,
+		projects: projects,
+		opts:     j.opts,
+		byPath:   byPath,
+	}
+
+	pick, err := j.wantedClonePaths(pathQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -46,19 +77,29 @@ func (j *cloneJob) choose(ctx context.Context, projects []*gitlab.Project) (*clo
 
 	pick.items = make([]*cloneItem, 0, len(pick.paths))
 	for _, path := range pick.paths {
-		pick.items = append(pick.items, j.cloneChoice(j.spec, byPath[path], path, inventory))
+		choice := &cloneChoiceQuery{
+			spec:      j.spec,
+			project:   byPath[path],
+			path:      path,
+			inventory: inventory,
+		}
+		pick.items = append(pick.items, j.cloneChoice(choice))
 	}
 
 	return pick, nil
 }
 
 // wantedClonePaths returns the exact projects this invocation will touch.
-func (j *cloneJob) wantedClonePaths(
-	spec *WorkspaceSpec,
-	projects []*gitlab.Project,
-	opts *WorkspaceCloneOptions,
-	byPath map[string]*gitlab.Project,
-) (*clonePick, error) {
+func (j *cloneJob) wantedClonePaths(query *clonePathQuery) (*clonePick, error) {
+	if query == nil || query.opts == nil {
+		return nil, errCloneConflict
+	}
+
+	spec := query.spec
+	projects := query.projects
+	opts := query.opts
+	byPath := query.byPath
+
 	if !opts.All {
 		return j.explicitClonePaths(spec, opts.Repos, byPath)
 	}
@@ -99,15 +140,15 @@ func (j *cloneJob) explicitClonePaths(
 	repos []string,
 	byPath map[string]*gitlab.Project,
 ) (*clonePick, error) {
-	seen := make(map[string]bool, len(repos))
+	seen := make(map[string]struct{}, len(repos))
 	paths := make([]string, 0, len(repos))
 
 	for _, path := range repos {
-		if seen[path] {
+		if _, found := seen[path]; found {
 			continue
 		}
 
-		seen[path] = true
+		seen[path] = struct{}{}
 		project := byPath[path]
 
 		if project == nil {
@@ -140,14 +181,15 @@ func (j *cloneJob) rejectCloneHazards(base string, paths []string, inventory *Re
 
 	blocked := append([]string{}, inventory.Catalog.Conflicts...)
 	blocked = append(blocked, inventory.Catalog.DifferentPath...)
-	block := make(map[string]bool, len(blocked))
+	block := make(map[string]struct{}, len(blocked))
 
 	for _, path := range blocked {
-		block[path] = true
+		block[path] = struct{}{}
 	}
 
 	for _, path := range paths {
-		if block[path] || !canonicalProjectPath(path) {
+		_, blockedPath := block[path]
+		if blockedPath || !canonicalProjectPath(path) {
 			return fmt.Errorf("%w: %s", errCloneConflict, path)
 		}
 	}
@@ -170,12 +212,11 @@ func (j *cloneJob) rejectCloneHazards(base string, paths []string, inventory *Re
 }
 
 // cloneChoice records whether an existing matching checkout can be kept.
-func (j *cloneJob) cloneChoice(
-	spec *WorkspaceSpec,
-	project *gitlab.Project,
-	path string,
-	inventory *RemoteInventory,
-) *cloneItem {
+func (j *cloneJob) cloneChoice(query *cloneChoiceQuery) *cloneItem {
+	spec := query.spec
+	project := query.project
+	path := query.path
+	inventory := query.inventory
 	reuse := !slices.Contains(inventory.Catalog.NotCloned, path)
 	item := &cloneItem{
 		project: project,

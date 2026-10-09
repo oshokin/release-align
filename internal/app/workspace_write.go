@@ -42,6 +42,18 @@ type workspacePublishHooks struct {
 	beforeRename func(path string) error
 }
 
+// publishedFile is the temporary document about to replace the workspace file.
+type publishedFile struct {
+	// file is the temporary file.
+	file *os.File
+	// info is the mode copied from the previous workspace file.
+	info os.FileInfo
+	// data is the encoded document.
+	data []byte
+	// hooks replace filesystem steps in tests.
+	hooks *workspacePublishHooks
+}
+
 var (
 	// errWorkspaceFileKind means the path is not a regular file.
 	errWorkspaceFileKind = errors.New("workspace file must be a regular file, not a symbolic link")
@@ -52,6 +64,21 @@ var (
 		"workspace refresh lock is held; another refresh may be running, or a stale lock remains",
 	)
 )
+
+// AbsentWorkspaceFile reports that filename is not already present.
+// A regular file, a directory, and a symlink are refused. The path is not created.
+func AbsentWorkspaceFile(filename string) error {
+	_, err := os.Lstat(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return fmt.Errorf("%s: %w", filename, os.ErrExist)
+}
 
 // CreateWorkspaceFile writes a new validated inventory and refuses every existing destination.
 // The document is checked against the existing 1 MiB decoder before the destination is opened.
@@ -191,7 +218,13 @@ func publishWorkspace(
 		}
 	}()
 
-	if err = preparePublishedFile(temp, document.info, data, hooks); err != nil {
+	prepared := &publishedFile{
+		file:  temp,
+		info:  document.info,
+		data:  data,
+		hooks: hooks,
+	}
+	if err = preparePublishedFile(prepared); err != nil {
 		_ = temp.Close()
 
 		return err
@@ -257,16 +290,20 @@ func workspaceExtension(filename string) error {
 }
 
 // preparePublishedFile copies the mode, writes the document, and syncs it before publication.
-func preparePublishedFile(file *os.File, info os.FileInfo, data []byte, hooks *workspacePublishHooks) error {
-	if err := file.Chmod(info.Mode().Perm()); err != nil {
+func preparePublishedFile(prepared *publishedFile) error {
+	if prepared == nil || prepared.file == nil || prepared.info == nil {
+		return errWorkspaceFileKind
+	}
+
+	if err := prepared.file.Chmod(prepared.info.Mode().Perm()); err != nil {
 		return err
 	}
 
-	if err := writePublishedFile(file, data, hooks); err != nil {
+	if err := writePublishedFile(prepared.file, prepared.data, prepared.hooks); err != nil {
 		return err
 	}
 
-	return syncPublishedFile(file, hooks)
+	return syncPublishedFile(prepared.file, prepared.hooks)
 }
 
 // writePublishedFile rejects a short write before the destination name is replaced.

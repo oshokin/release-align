@@ -2,6 +2,7 @@ package logger
 
 import (
 	"testing"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -66,21 +67,15 @@ func TestLoggerInitialization(t *testing.T) {
 // TestLoggerThreadSafety tests basic thread safety of logger operations.
 func TestLoggerThreadSafety(t *testing.T) {
 	// Don't run in parallel to avoid race conditions with global logger state.
-	ctx := t.Context()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
 
-	// Test concurrent logging operations.
-	done := make(chan bool, 10)
+		for range 10 {
+			go func() {
+				Info(ctx, "concurrent message")
+			}()
+		}
 
-	for i := range 10 {
-		go func(_ int) {
-			Info(ctx, "concurrent message")
-
-			done <- true
-		}(i)
-	}
-
-	// Wait for all goroutines to complete.
-	for range 10 {
-		<-done
-	}
+		synctest.Wait()
+	})
 }

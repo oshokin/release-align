@@ -84,7 +84,7 @@ func (s *GitLabSource) normalizeGitLabGroups(groups []string) ([]string, error) 
 		return []string{}, nil
 	}
 
-	seen := make(map[string]bool, len(groups))
+	seen := make(map[string]struct{}, len(groups))
 	out := make([]string, 0, len(groups))
 
 	for _, group := range groups {
@@ -92,11 +92,11 @@ func (s *GitLabSource) normalizeGitLabGroups(groups []string) ([]string, error) 
 			return nil, errGitLabGroups
 		}
 
-		if seen[group] {
+		if _, found := seen[group]; found {
 			continue
 		}
 
-		seen[group] = true
+		seen[group] = struct{}{}
 		out = append(out, group)
 	}
 

@@ -5,6 +5,22 @@ import (
 	"strings"
 )
 
+// branchSeen is the worktree path and branch ref read from one porcelain record.
+type branchSeen struct {
+	// worktree is the path of that worktree.
+	worktree string
+	// current is its branch ref.
+	current string
+}
+
+// branchField is one porcelain worktree line.
+type branchField struct {
+	// key is the porcelain field name.
+	key string
+	// value is the porcelain field value.
+	value string
+}
+
 // branchSwitch is a local branch checkout onto an already verified remote tip.
 type branchSwitch struct {
 	// repo is the local clone.
@@ -118,14 +134,14 @@ func (r *runner) branchBusy(ctx context.Context, repo *repository, branch string
 
 // worktreeUsesBranch reports a different worktree that already uses the branch.
 func (r *runner) worktreeUsesBranch(out, repoPath, branchRef string) (bool, error) {
-	var worktree, current string
+	seen := &branchSeen{}
 
 	flush := func() (bool, error) {
-		if current != branchRef || worktree == "" {
+		if seen.current != branchRef || seen.worktree == "" {
 			return false, nil
 		}
 
-		same, err := r.pathsSame(worktree, repoPath)
+		same, err := r.pathsSame(seen.worktree, repoPath)
 		if err != nil {
 			return false, err
 		}
@@ -136,7 +152,11 @@ func (r *runner) worktreeUsesBranch(out, repoPath, branchRef string) (bool, erro
 	for record := range strings.SplitSeq(strings.Trim(out, "\x00"), "\x00") {
 		if record != "" {
 			key, value, _ := strings.Cut(record, " ")
-			r.recordBranch(key, value, &worktree, &current)
+			field := &branchField{
+				key:   key,
+				value: value,
+			}
+			r.recordBranch(seen, field)
 
 			continue
 		}
@@ -146,18 +166,23 @@ func (r *runner) worktreeUsesBranch(out, repoPath, branchRef string) (bool, erro
 			return busy, err
 		}
 
-		worktree, current = "", ""
+		seen.worktree = ""
+		seen.current = ""
 	}
 
 	return flush()
 }
 
-// recordBranch stores one porcelain worktree field.
-func (*runner) recordBranch(key, value string, worktree, current *string) {
-	switch key {
+// recordBranch copies one porcelain field onto the record read so far.
+func (*runner) recordBranch(seen *branchSeen, field *branchField) {
+	if seen == nil || field == nil {
+		return
+	}
+
+	switch field.key {
 	case "worktree":
-		*worktree = value
+		seen.worktree = field.value
 	case "branch":
-		*current = value
+		seen.current = field.value
 	}
 }

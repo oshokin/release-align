@@ -35,13 +35,26 @@ func (c *Config) ValidateSettings() error {
 		return errAttemptsRange
 	}
 
-	if c.ProbeTimeout <= 0 || c.FetchTimeout <= 0 || c.LocalTimeout <= 0 ||
-		c.CloneTimeout <= 0 || c.ArchiveTimeout <= 0 || c.RetryDelay < 0 {
+	if c.ProbeTimeout <= 0 || c.FetchTimeout <= 0 || c.CatalogTimeout <= 0 || c.CatalogBudget <= 0 ||
+		c.LocalTimeout <= 0 || c.CloneTimeout <= 0 || c.ArchiveTimeout <= 0 || c.RetryDelay < 0 {
 		return errTimeoutRange
 	}
 
 	if c.Branch == "" || strings.HasPrefix(c.Branch, "-") {
 		return errInvalidBranch
+	}
+
+	return c.TakeLogLevel(true, "")
+}
+
+// TakeLogLevel keeps an explicit level, or copies one from the workspace when explicit is false.
+func (c *Config) TakeLogLevel(explicit bool, recorded string) error {
+	if c == nil {
+		return nil
+	}
+
+	if !explicit && recorded != "" {
+		c.LogLevel = recorded
 	}
 
 	if _, ok := logger.ParseLogLevel(c.LogLevel); !ok {

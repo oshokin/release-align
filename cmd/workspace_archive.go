@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -10,6 +13,8 @@ import (
 
 // workspaceArchiveCommand owns the flags of workspace archive.
 type workspaceArchiveCommand struct {
+	// cfg is the shared program configuration. The root flag writes its log level here.
+	cfg *app.Config
 	// options are the parsed archive flags.
 	options *app.WorkspaceArchiveOptions
 }
@@ -18,14 +23,14 @@ type workspaceArchiveCommand struct {
 var errArchiveOutput = errors.New("output must be text or json")
 
 // newWorkspaceArchiveCommand packs workspace revisions into one ZIP.
-func newWorkspaceArchiveCommand() *cobra.Command {
-	defaults := app.DefaultConfig()
+func newWorkspaceArchiveCommand(cfg *app.Config) *cobra.Command {
 	options := &app.WorkspaceArchiveOptions{
-		Output:         defaults.Output,
-		ArchiveTimeout: defaults.ArchiveTimeout,
-		LocalTimeout:   defaults.LocalTimeout,
+		Output:         cfg.Output,
+		ArchiveTimeout: cfg.ArchiveTimeout,
+		LocalTimeout:   cfg.LocalTimeout,
 	}
 	handler := &workspaceArchiveCommand{
+		cfg:     cfg,
 		options: options,
 	}
 	command := &cobra.Command{
@@ -107,7 +112,26 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 	c.options.SetTimeoutLocks(timeoutLocks(command))
 	c.options.SetProgress(command.ErrOrStderr())
 
-	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, cfg.LogLevel)
+	spec, err := app.LoadWorkspace(c.options.WorkspaceFile)
+	if err != nil {
+		return c.archiveCommandError(err)
+	}
+
+	if err = applyCommandEnv(command, c.cfg); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	if err = c.cfg.TakeLogLevel(durationLocked(command, "log-level", "LOG_LEVEL"), spec.LogLevel); err != nil {
+		return &commandError{
+			code:  exitUsage,
+			cause: err,
+		}
+	}
+
+	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, c.cfg.LogLevel)
 
 	report, err := app.ArchiveWorkspace(ctx, c.options)
 	if command.Context().Err() != nil {
@@ -146,10 +170,58 @@ func (c *workspaceArchiveCommand) archiveEnvConfig() *app.Config {
 // writeArchiveReport writes JSON to stdout or the text summary.
 func (c *workspaceArchiveCommand) writeArchiveReport(command *cobra.Command, report *app.ArchiveReport) error {
 	if c.options.Output == cloneOutputJSON {
-		return app.WriteArchiveReport(command.OutOrStdout(), report)
+		return c.writeArchiveJSON(command.OutOrStdout(), report)
 	}
 
-	return app.FormatArchiveReport(command.OutOrStdout(), report)
+	return c.formatArchiveReport(command.OutOrStdout(), report)
+}
+
+// formatArchiveReport writes the text summary.
+func (*workspaceArchiveCommand) formatArchiveReport(w io.Writer, report *app.ArchiveReport) error {
+	if w == nil || report == nil {
+		return nil
+	}
+
+	if report.Error != "" {
+		_, err := fmt.Fprintf(w, "%s\nNo archive file was published.\n", report.Error)
+
+		return err
+	}
+
+	_, err := fmt.Fprintf(
+		w,
+		"%s\nArchived: %d\nFile: %s\nGitlinks: %d\n",
+		report.Source,
+		report.Repositories,
+		report.File,
+		report.Gitlinks,
+	)
+	if err != nil {
+		return err
+	}
+
+	if report.Gitlinks == 0 {
+		return nil
+	}
+
+	_, err = fmt.Fprintln(
+		w,
+		"Gitlinks are recorded in the manifest. Submodule contents are not in the archive.",
+	)
+
+	return err
+}
+
+// writeArchiveJSON writes one JSON document.
+func (*workspaceArchiveCommand) writeArchiveJSON(w io.Writer, report *app.ArchiveReport) error {
+	if report == nil {
+		return errNilReport
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+
+	return enc.Encode(report)
 }
 
 // archiveCommandError maps archive failures onto process statuses.

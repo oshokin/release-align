@@ -61,7 +61,7 @@ func TestReviewYAMLRefreshMissingShortRevision(t *testing.T) {
 	}
 
 	cloneRel(t, f, "group/added")
-	opts.AddAll = true
+	opts.Sync = true
 	report, err = RefreshWorkspace(t.Context(), offlineClient(f), file, opts)
 
 	if err != nil || !report.Written || len(report.Added) != 1 {
@@ -69,8 +69,9 @@ func TestReviewYAMLRefreshMissingShortRevision(t *testing.T) {
 	}
 
 	spec, err := LoadWorkspace(file)
-	if err != nil || spec.shortDefault != "master" || spec.Projects[0].Revision != nil {
-		t.Fatal("refresh changed inheritance", err)
+	if err != nil || spec.shortDefault != "master" || spec.Projects[0].Path != "group/repo with spaces" ||
+		spec.Projects[0].Revision != nil || len(report.Removed) != 1 || report.Removed[0] != "group/missing" {
+		t.Fatal("refresh changed inheritance", err, report)
 	}
 }
 
@@ -250,10 +251,10 @@ func TestReviewYAMLNameCollisionSuffix(t *testing.T) {
 	path := "other/service"
 	sum := sha256.Sum256([]byte(path))
 	prefix := "service-" + hex.EncodeToString(sum[:4])
-	used := map[string]bool{
-		"service":     true,
-		prefix:        true,
-		prefix + "-2": true,
+	used := map[string]struct{}{
+		"service":     {},
+		prefix:        {},
+		prefix + "-2": {},
 	}
 
 	if got := uniqueProjectName(path, used); got != prefix+"-3" {

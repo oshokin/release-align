@@ -173,30 +173,38 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 		r.Errors = []string{}
 	}
 
-	want := make(map[string]bool, len(expected))
+	want := make(map[string]struct{}, len(expected))
 	for _, p := range expected {
-		if !canonicalProjectPath(p) || want[p] {
+		_, duplicate := want[p]
+		if !canonicalProjectPath(p) || duplicate {
 			return fmt.Errorf("%w: %q", errWorkspaceExpectedPath, p)
 		}
 
-		want[p] = true
+		want[p] = struct{}{}
 	}
 
-	seen := make(map[string]bool, len(r.Rows))
+	seen := make(map[string]struct{}, len(r.Rows))
 	allReady := true
 
 	for _, row := range r.Rows {
-		if row == nil || !want[row.Path] || seen[row.Path] {
+		if row == nil {
 			return errWorkspaceRows
 		}
 
-		seen[row.Path] = true
+		_, expected := want[row.Path]
+		_, duplicate := seen[row.Path]
+
+		if !expected || duplicate {
+			return errWorkspaceRows
+		}
+
+		seen[row.Path] = struct{}{}
 		row.Ready = !r.DryRun && row.MatchesContract()
 		allReady = allReady && row.Ready
 	}
 
 	for _, p := range expected {
-		if !seen[p] {
+		if _, found := seen[p]; !found {
 			missing := &WorkspaceRow{
 				Path:       p,
 				Outcome:    outcomeNotStarted,

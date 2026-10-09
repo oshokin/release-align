@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"go.uber.org/zap/zapcore"
@@ -15,15 +16,13 @@ func TestProgressEstimatesTheRemainder(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	ctx := ToContext(t.Context(), NewWithWriter(zapcore.InfoLevel, &buf))
-	progress := NewProgress("fetch", 4)
-	start := time.Now()
-	progress.start = start
-	progress.now = func() time.Time {
-		return start.Add(4 * time.Second)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		ctx := ToContext(t.Context(), NewWithWriter(zapcore.InfoLevel, &buf))
+		progress := NewProgress("fetch", 4)
 
-	progress.Advance(ctx, "group/name", "fetched")
+		time.Sleep(4 * time.Second)
+		progress.Advance(ctx, "group/name", "fetched")
+	})
 
 	plain := buf.String()
 	for _, part := range []string{

@@ -98,7 +98,8 @@ func TestWorkspaceRefreshPreviewAddAndGroupSync(t *testing.T) {
 // TestWorkspaceRefreshUsage covers missing flags, combined add modes, and a comma inside one path.
 func TestWorkspaceRefreshUsage(t *testing.T) {
 	rejected := [][]string{
-		{"workspace", "refresh", "--base-dir", "x", "--file", "y", "--add", "a", "--add-all"},
+		{"workspace", "refresh", "--base-dir", "x", "--file", "y", "--add", "a", "--sync"},
+		{"workspace", "refresh", "--base-dir", "x", "--file", "y", "--add-all"},
 		{"workspace", "refresh", "--base-dir", "x", "--file", "y", "extra"},
 	}
 
@@ -141,6 +142,87 @@ func TestWorkspaceRefreshUsage(t *testing.T) {
 	args := []string{"workspace", "refresh", "--base-dir", base, "--file", file, "--add", "lamiona/search/new,indexer"}
 	if code := Execute(args, &out, &errOut); code != exitUsage || !strings.Contains(errOut.String(), "new,indexer") {
 		t.Fatalf("%d %s %s", code, out.String(), errOut.String())
+	}
+}
+
+// TestWorkspaceRefreshSyncDropsAMissingClone removes one gone path and keeps the other.
+func TestWorkspaceRefreshSyncDropsAMissingClone(t *testing.T) {
+	root := t.TempDir()
+	isolateGit(t, root)
+	base := filepath.Join(root, "src")
+	remote := filepath.Join(root, "origin.git")
+	kept := filepath.Join(base, "lamiona", "search", "calyra")
+	gone := filepath.Join(base, "lamiona", "search", "old")
+	other := filepath.Join(base, "lamiona", "search", "other")
+	file := filepath.Join(root, "release-align.yml")
+
+	gitCmd(t, root, "init", "--bare", "--initial-branch=master", remote)
+	gitCmd(t, root, "clone", remote, kept)
+	gitCmd(t, root, "clone", remote, gone)
+	gitCmd(t, root, "clone", remote, other)
+
+	initArgs := []string{"workspace", "init", "--base-dir", base, "--branch", "master", "--file", file}
+	if code := runCLI(t, initArgs...); code != exitOK {
+		t.Fatal(code)
+	}
+
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(other); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+
+	preview := []string{"workspace", "refresh", "--base-dir", base, "--file", file}
+	if code := Execute(preview, &out, &errOut); code != exitOK ||
+		!strings.Contains(out.String(), "drop with --sync") ||
+		!strings.Contains(out.String(), "--sync PATH") ||
+		strings.Contains(out.String(), "--add PATH") {
+		t.Fatalf("preview %d\n%s\n%s", code, out.String(), errOut.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+
+	args := []string{"workspace", "refresh", "--base-dir", base, "--file", file, "--sync", "lamiona/search/old"}
+	body := readTestFileString(t, file)
+
+	if code := Execute(args, &out, &errOut); code != exitOK ||
+		!strings.Contains(out.String(), "Removed: 1") ||
+		!strings.Contains(out.String(), "- lamiona/search/old") ||
+		strings.Contains(readTestFileString(t, file), "lamiona/search/old") ||
+		!strings.Contains(readTestFileString(t, file), "lamiona/search/other") ||
+		!strings.Contains(readTestFileString(t, file), "lamiona/search/calyra") {
+		t.Fatalf("sync %d\n%s\n%s\n%s", code, out.String(), errOut.String(), body)
+	}
+}
+
+// TestWorkspaceRefreshRemoteFlagsAreUsage rejects deletes and checkouts the command must not invent.
+func TestWorkspaceRefreshRemoteFlagsAreUsage(t *testing.T) {
+	cases := []struct {
+		args []string
+		text string
+	}{
+		{[]string{"workspace", "refresh", "--delete"}, "requires --remote"},
+		{[]string{"workspace", "refresh", "--remote", "--add", "group/repo"}, "cannot be combined with --add"},
+		{[]string{"workspace", "refresh", "--remote", "--sync", "group/repo"}, "does not take paths"},
+		{[]string{"workspace", "sync", "--force-checkout"}, "unknown flag"},
+	}
+
+	for _, item := range cases {
+		var out, errOut bytes.Buffer
+
+		if code := Execute(
+			item.args,
+			&out,
+			&errOut,
+		); code != exitUsage ||
+			!strings.Contains(errOut.String(), item.text) {
+			t.Fatalf("%v %d\n%s\n%s", item.args, code, out.String(), errOut.String())
+		}
 	}
 }
 

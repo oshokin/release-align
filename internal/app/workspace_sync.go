@@ -39,7 +39,7 @@ func (r *runner) syncWorkspace(ctx context.Context, items []*workspaceItem) (str
 		return freshnessFetched, err
 	}
 
-	if r.itemsBlocked(items) {
+	if !r.ignoreErrors() && r.itemsBlocked(items) {
 		return freshnessFetched, nil
 	}
 

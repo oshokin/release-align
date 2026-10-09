@@ -153,14 +153,16 @@ func cloneOptions(t *testing.T, base, file string, server *httptest.Server) *Wor
 	t.Helper()
 
 	return &WorkspaceCloneOptions{
-		BaseDir:       base,
-		WorkspaceFile: file,
-		Attempts:      1,
-		ProbeTimeout:  time.Second,
-		RetryDelay:    time.Millisecond,
-		FetchTimeout:  5 * time.Second,
-		LocalTimeout:  5 * time.Second,
-		CloneTimeout:  time.Minute,
+		BaseDir:        base,
+		WorkspaceFile:  file,
+		Attempts:       1,
+		ProbeTimeout:   time.Second,
+		RetryDelay:     time.Millisecond,
+		FetchTimeout:   5 * time.Second,
+		CatalogTimeout: 5 * time.Second,
+		CatalogBudget:  5 * time.Second,
+		LocalTimeout:   5 * time.Second,
+		CloneTimeout:   time.Minute,
 		hooks: &remoteHooks{
 			token:           "secret",
 			httpClient:      server.Client(),

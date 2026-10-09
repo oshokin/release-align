@@ -12,11 +12,11 @@ import (
 
 // ensureProjectNames fills empty names from the path and keeps names that are already set.
 func ensureProjectNames(projects []*ProjectSpec) {
-	used := make(map[string]bool, len(projects))
+	used := make(map[string]struct{}, len(projects))
 
 	for _, project := range projects {
 		if project != nil && project.Name != "" {
-			used[project.Name] = true
+			used[project.Name] = struct{}{}
 		}
 	}
 
@@ -30,7 +30,7 @@ func ensureProjectNames(projects []*ProjectSpec) {
 }
 
 // uniqueProjectName uses the path basename, then a stable suffix when that name is taken.
-func uniqueProjectName(path string, used map[string]bool) string {
+func uniqueProjectName(path string, used map[string]struct{}) string {
 	base := path
 	if _, rest, found := strings.CutLast(path, "/"); found {
 		base = rest
@@ -41,8 +41,8 @@ func uniqueProjectName(path string, used map[string]bool) string {
 		base = "project"
 	}
 
-	if !used[base] {
-		used[base] = true
+	if _, taken := used[base]; !taken {
+		used[base] = struct{}{}
 
 		return base
 	}
@@ -52,11 +52,15 @@ func uniqueProjectName(path string, used map[string]bool) string {
 	prefix := base + "-" + hex.EncodeToString(sum[:4])
 	name := prefix
 
-	for suffix := 2; used[name]; suffix++ {
+	for suffix := 2; ; suffix++ {
+		if _, taken := used[name]; !taken {
+			break
+		}
+
 		name = prefix + "-" + strconv.Itoa(suffix)
 	}
 
-	used[name] = true
+	used[name] = struct{}{}
 
 	return name
 }
@@ -79,10 +83,14 @@ func encodeFresh(spec *WorkspaceSpec) ([]byte, error) {
 	return marshalWorkspaceYAML(root)
 }
 
-// encodeEdited appends projects that are not in the node and updates the release label.
+// encodeEdited makes the project list match spec and updates the release label.
 func encodeEdited(root *yaml.Node, spec *WorkspaceSpec) ([]byte, error) {
 	next := copyNode(root)
 	setRelease(next, spec.Release)
+
+	if err := dropAbsentProjects(next, spec); err != nil {
+		return nil, err
+	}
 
 	if err := appendMissingProjects(next, spec); err != nil {
 		return nil, err
@@ -156,6 +164,10 @@ func manifestNode(spec *WorkspaceSpec) *yaml.Node {
 func releaseNode(spec *WorkspaceSpec) *yaml.Node {
 	block := mappingNode()
 	block.Content = append(block.Content, strNode("schema-version", false), intNode(1))
+
+	if spec.LogLevel != "" {
+		block.Content = append(block.Content, strNode("log-level", false), strNode(spec.LogLevel, false))
+	}
 
 	if spec.Release != "" {
 		block.Content = append(block.Content, strNode("release", false), strNode(spec.Release, false))
@@ -233,6 +245,8 @@ func timeoutsNode(timeouts *WorkspaceTimeouts) *yaml.Node {
 	node := mappingNode()
 	addTimeout(node, "probe", timeouts.Probe)
 	addTimeout(node, "fetch", timeouts.Fetch)
+	addTimeout(node, timeoutCatalog, timeouts.Catalog)
+	addTimeout(node, timeoutCatalogBudget, timeouts.CatalogBudget)
 	addTimeout(node, "local", timeouts.Local)
 	addTimeout(node, "clone", timeouts.Clone)
 	addTimeout(node, "archive", timeouts.Archive)
@@ -261,38 +275,84 @@ func revisionText(revision *RevisionSpec) (string, bool) {
 	}
 }
 
-// appendMissingProjects adds inventory rows that are not already in the document.
-func appendMissingProjects(root *yaml.Node, spec *WorkspaceSpec) error {
+// dropAbsentProjects removes sequence entries whose path is no longer in spec.
+func dropAbsentProjects(root *yaml.Node, spec *WorkspaceSpec) error {
+	projects, err := projectSequence(root)
+	if err != nil {
+		return err
+	}
+
+	wanted := make(map[string]struct{}, len(spec.Projects))
+
+	for _, project := range spec.Projects {
+		if project == nil || project.Path == "" {
+			return errWorkspaceSchema
+		}
+
+		wanted[project.Path] = struct{}{}
+	}
+
+	kept := make([]*yaml.Node, 0, len(projects.Content))
+
+	for _, item := range projects.Content {
+		identity, identityErr := projectIdentity(item)
+		if identityErr != nil {
+			return identityErr
+		}
+
+		if identity.path == "" {
+			return errWorkspaceSchema
+		}
+
+		if _, keep := wanted[identity.path]; keep {
+			kept = append(kept, item)
+		}
+	}
+
+	projects.Content = kept
+
+	return nil
+}
+
+// projectSequence returns the manifest project list.
+func projectSequence(root *yaml.Node) (*yaml.Node, error) {
 	manifest, ok := mappingValue(root, keyManifest)
 	if !ok {
-		return errWorkspaceSchema
+		return nil, errWorkspaceSchema
 	}
 
 	projects, ok := mappingValue(manifest, keyProjects)
 	if !ok || projects.Kind != yaml.SequenceNode {
-		return errWorkspaceSchema
+		return nil, errWorkspaceSchema
 	}
 
-	existing := make(map[string]bool, len(projects.Content))
+	return projects, nil
+}
+
+// appendMissingProjects adds inventory rows that are not already in the document.
+func appendMissingProjects(root *yaml.Node, spec *WorkspaceSpec) error {
+	projects, err := projectSequence(root)
+	if err != nil {
+		return err
+	}
+
+	existing := make(map[string]struct{}, len(projects.Content))
 
 	for _, item := range projects.Content {
-		path, err := optionalString(item, keyPath)
-		if err != nil {
-			return err
+		identity, identityErr := projectIdentity(item)
+		if identityErr != nil {
+			return identityErr
 		}
 
-		if path == "" {
-			path, err = optionalString(item, keyName)
-			if err != nil {
-				return err
-			}
-		}
-
-		existing[path] = true
+		existing[identity.path] = struct{}{}
 	}
 
 	for _, project := range spec.Projects {
-		if project == nil || existing[project.Path] {
+		if project == nil {
+			continue
+		}
+
+		if _, present := existing[project.Path]; present {
 			continue
 		}
 

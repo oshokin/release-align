@@ -51,13 +51,15 @@ func (r *runner) switchBlocker(
 		return reasonDetached, messageDetachedHead
 	}
 
-	reason, err := r.safeCurrent(ctx, item.repo)
-	if err != nil {
-		return r.workspaceGitReason(err)
-	}
+	if !r.leavingOtherBranch(state, resolved) {
+		reason, err := r.safeCurrent(ctx, item.repo)
+		if err != nil {
+			return r.workspaceGitReason(err)
+		}
 
-	if reason != "" {
-		return r.mapSafeReason(reason), reason
+		if reason != "" {
+			return r.mapSafeReason(reason), reason
+		}
 	}
 
 	if resolved.Kind != revisionBranch {
@@ -65,6 +67,20 @@ func (r *runner) switchBlocker(
 	}
 
 	return r.branchBlocker(ctx, item, resolved)
+}
+
+// leavingOtherBranch reports a named branch that is not the pinned branch.
+// Checkout leaves that branch and its commits in place.
+func (r *runner) leavingOtherBranch(state *ObservedState, resolved *ResolvedRevision) bool {
+	if state == nil || state.Branch == "" || resolved == nil {
+		return false
+	}
+
+	if resolved.Kind != revisionBranch {
+		return true
+	}
+
+	return state.Branch != resolved.Value
 }
 
 // mapSafeReason maps a safety message onto a workspace reason code.
@@ -114,15 +130,6 @@ func (r *runner) branchBlocker(ctx context.Context, item *workspaceItem, resolve
 
 	if !ok {
 		return reasonDiverged, "target branch has local commits or diverges from the pinned revision"
-	}
-
-	upstream, err := r.git.Local(ctx, item.dir, "for-each-ref", "--format=%(upstream)", local)
-	if err != nil {
-		return r.workspaceGitReason(err)
-	}
-
-	if upstream != "refs/remotes/origin/"+resolved.Value {
-		return reasonUpstream, "target branch has no matching origin upstream"
 	}
 
 	return "", ""

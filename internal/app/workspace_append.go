@@ -26,10 +26,10 @@ func AppendDiscoveredProjects(current *WorkspaceSpec, selected []*ProjectSpec) (
 	}
 
 	next := current.clone()
-	known := make(map[string]bool, len(next.Projects))
+	known := make(map[string]struct{}, len(next.Projects))
 
 	for _, project := range next.Projects {
-		known[project.Path] = true
+		known[project.Path] = struct{}{}
 	}
 
 	additions, err := discoveredAdditions(selected, known)
@@ -60,7 +60,7 @@ func AppendDiscoveredProjects(current *WorkspaceSpec, selected []*ProjectSpec) (
 }
 
 // discoveredAdditions copies new projects in caller order. Existing paths are skipped.
-func discoveredAdditions(selected []*ProjectSpec, known map[string]bool) ([]*ProjectSpec, error) {
+func discoveredAdditions(selected []*ProjectSpec, known map[string]struct{}) ([]*ProjectSpec, error) {
 	additions := make([]*ProjectSpec, 0, len(selected))
 
 	for _, candidate := range selected {
@@ -68,11 +68,11 @@ func discoveredAdditions(selected []*ProjectSpec, known map[string]bool) ([]*Pro
 			return nil, errWorkspaceAppendCandidate
 		}
 
-		if known[candidate.Path] {
+		if _, found := known[candidate.Path]; found {
 			continue
 		}
 
-		known[candidate.Path] = true
+		known[candidate.Path] = struct{}{}
 		additions = append(additions, candidate.clone())
 	}
 

@@ -11,6 +11,9 @@ import (
 	"github.com/oshokin/release-align/internal/logger"
 )
 
+// errNilReport means a command was asked to print a nil report.
+var errNilReport = errors.New("nil report")
+
 // withCommandLog attaches a text logger to the command context.
 // JSON output keeps those lines on stderr.
 func withCommandLog(cmd *cobra.Command, json bool, level string) context.Context {
@@ -32,6 +35,7 @@ func newSyncCommand(cfg *app.Config) *cobra.Command {
 		Short: "Move selected clones onto the workspace release",
 		Long: "Each selected project is moved to its exact branch, tag, or commit. " +
 			"The run fails when a selected project is not ready. " +
+			"--ignore-errors still checks out every repository that can move and leaves the blocked ones unchanged. " +
 			"--workspace defaults to release-align.yml. " +
 			"An omitted --base-dir uses release-align.base-dir from that file. " +
 			"--remote asks GitLab for the configured groups after that and does not clone.",
@@ -42,6 +46,12 @@ func newSyncCommand(cfg *app.Config) *cobra.Command {
 	}
 	command.SetFlagErrorFunc(usageFlagError)
 	bindFlags(command, cfg)
+	command.Flags().BoolVar(
+		&cfg.IgnoreErrors,
+		"ignore-errors",
+		false,
+		"check out every repository that can move; leave blocked repositories unchanged",
+	)
 
 	return command
 }
@@ -99,6 +109,11 @@ func runWorkspaceCommand(cmd *cobra.Command, cfg *app.Config, mode string) error
 	}
 
 	cfg.BaseDir = base
+
+	if err = cfg.TakeLogLevel(durationLocked(cmd, "log-level", "LOG_LEVEL"), spec.LogLevel); err != nil {
+		return usageCommand(cmd, cfg, mode, err)
+	}
+
 	if err = cfg.Validate(); err != nil {
 		return usageCommand(cmd, cfg, mode, err)
 	}

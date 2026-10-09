@@ -2,70 +2,35 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// FormatCloneReport writes the text summary. JSON callers skip it.
-func FormatCloneReport(w io.Writer, report *CloneReport) error {
-	if w == nil || report == nil {
-		return nil
-	}
-
-	_, err := fmt.Fprintf(
-		w,
-		"Cloned: %d. Reused: %d. Added to workspace: %d. Failed: %d.\n"+
-			"Clones use their remote default branches; release alignment has not run.\n",
-		report.Cloned,
-		report.Reused,
-		report.Added,
-		report.Failed,
-	)
-	if err != nil {
-		return err
-	}
-
-	if report.SkippedEmpty > 0 {
-		if _, err = fmt.Fprintf(w, "Skipped, no default branch: %d.\n", report.SkippedEmpty); err != nil {
-			return err
-		}
-	}
-
-	if report.Recovery != "" {
-		if _, err = fmt.Fprintf(w, "Recovery:\n  %s\n", report.Recovery); err != nil {
-			return err
-		}
-	}
-
-	if report.Next == "" {
-		return nil
-	}
-
-	_, err = fmt.Fprintf(w, "Next:\n  %s\n", report.Next)
-
-	return err
-}
-
-// WriteCloneReport writes one JSON document.
-func WriteCloneReport(w io.Writer, report *CloneReport) error {
-	if report == nil {
-		return errWorkspaceNilReport
-	}
-
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-
-	return enc.Encode(report)
+// cloneAdditionQuery is the set of finished clones that may be appended.
+type cloneAdditionQuery struct {
+	// items are the projects this invocation considered.
+	items []*cloneItem
+	// report lists paths that finished cloning.
+	report *CloneReport
+	// protocol is ssh or https.
+	protocol string
+	// hooks supply tests with a clone URL.
+	hooks *remoteHooks
 }
 
 // publishClone appends completed new paths. It does not delete clones when the write fails.
 func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneReport, error) {
-	selected, err := j.cloneAdditions(items, j.report, j.spec.GitLab.CloneProtocol, j.opts.hooks)
+	query := &cloneAdditionQuery{
+		items:    items,
+		report:   j.report,
+		protocol: j.spec.GitLab.CloneProtocol,
+		hooks:    j.opts.hooks,
+	}
+
+	selected, err := j.cloneAdditions(query)
 	if err != nil {
 		return j.publishCloneError(j.opts, j.report, err)
 	}
@@ -102,21 +67,29 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 }
 
 // cloneAdditions builds workspace rows for completed projects that are not listed yet.
-func (j *cloneJob) cloneAdditions(
-	items []*cloneItem,
-	report *CloneReport,
-	protocol string,
-	hooks *remoteHooks,
-) ([]*ProjectSpec, error) {
-	done := make(map[string]bool, len(report.Paths))
+func (j *cloneJob) cloneAdditions(query *cloneAdditionQuery) ([]*ProjectSpec, error) {
+	if query == nil || query.report == nil {
+		return nil, errClonePublish
+	}
+
+	items := query.items
+	report := query.report
+	protocol := query.protocol
+	hooks := query.hooks
+
+	done := make(map[string]struct{}, len(report.Paths))
 	for _, path := range report.Paths {
-		done[path] = true
+		done[path] = struct{}{}
 	}
 
 	selected := make([]*ProjectSpec, 0)
 
 	for _, item := range items {
-		if item == nil || item.listed || !done[item.path] {
+		if item == nil || item.listed {
+			continue
+		}
+
+		if _, finished := done[item.path]; !finished {
 			continue
 		}
 

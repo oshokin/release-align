@@ -20,6 +20,9 @@ type Config struct {
 	Attempts int
 	// DryRun plans updates without fetching or writing.
 	DryRun bool
+	// IgnoreErrors checks out every repository that can move.
+	// A blocked repository stays as it is and does not stop the others.
+	IgnoreErrors bool
 	// LogLevel is a zap level name. Case does not matter.
 	LogLevel string
 	// ProbeTimeout limits one origin reachability check.
@@ -28,6 +31,10 @@ type Config struct {
 	RetryDelay time.Duration
 	// FetchTimeout limits one git fetch.
 	FetchTimeout time.Duration
+	// CatalogTimeout limits one GitLab projects page.
+	CatalogTimeout time.Duration
+	// CatalogBudget limits one GitLab group listing.
+	CatalogBudget time.Duration
 	// LocalTimeout limits git commands that do not talk to a remote.
 	LocalTimeout time.Duration
 	// CloneTimeout limits one git clone.
@@ -88,6 +95,8 @@ func DefaultConfig() *Config {
 		ProbeTimeout:   5 * time.Second,
 		RetryDelay:     time.Second,
 		FetchTimeout:   60 * time.Second,
+		CatalogTimeout: 30 * time.Second,
+		CatalogBudget:  3 * time.Minute,
 		LocalTimeout:   40 * time.Second,
 		CloneTimeout:   15 * time.Minute,
 		ArchiveTimeout: 15 * time.Minute,

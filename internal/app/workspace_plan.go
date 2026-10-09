@@ -64,7 +64,7 @@ func (r *runner) planWorkspace(ctx context.Context, items []*workspaceItem) erro
 		}
 
 		err := r.planItem(ctx, item)
-		r.step(ctx, item.spec.Path, r.rowLogMessage(item.row))
+		r.stepLevel(ctx, item.spec.Path, r.rowLogMessage(item.row), item.row.Outcome == outcomeBlocked)
 
 		if err != nil {
 			markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
@@ -73,9 +73,7 @@ func (r *runner) planWorkspace(ctx context.Context, items []*workspaceItem) erro
 		}
 	}
 
-	if r.itemsBlocked(items) {
-		r.blockReadyPlans(items)
-	}
+	r.holdBack(items)
 
 	return nil
 }
@@ -116,7 +114,7 @@ func (r *runner) readCached(ctx context.Context, items []*workspaceItem, plan bo
 		}
 
 		err := r.readOne(ctx, item, plan)
-		r.step(ctx, item.spec.Path, r.rowLogMessage(item.row))
+		r.stepLevel(ctx, item.spec.Path, r.rowLogMessage(item.row), item.row.Outcome == outcomeBlocked)
 
 		if err != nil {
 			markPending(items, outcomeCanceled, reasonCanceled, messageRunStopped)
@@ -125,8 +123,8 @@ func (r *runner) readCached(ctx context.Context, items []*workspaceItem, plan bo
 		}
 	}
 
-	if plan && r.itemsBlocked(items) {
-		r.blockReadyPlans(items)
+	if plan {
+		r.holdBack(items)
 	}
 
 	return nil
@@ -197,7 +195,7 @@ func (r *runner) readRevision(
 		code, message := r.workspaceGitReason(err)
 		blockRow(item.row, outcomeBlocked, code, message)
 
-		return &revisionRead{}, nil
+		return new(revisionRead), nil
 	}
 
 	item.resolved = resolved

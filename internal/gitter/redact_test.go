@@ -28,3 +28,24 @@ func TestCommandErrorRedactsDiagnosticCredentials(t *testing.T) {
 		t.Fatal("classification lost")
 	}
 }
+
+// TestCommandErrorJoinsStderrLines keeps a later Git line on the same diagnostic.
+func TestCommandErrorJoinsStderrLines(t *testing.T) {
+	t.Parallel()
+
+	failure := &CommandError{
+		Args: []string{"fetch", "origin"},
+		Err:  os.ErrPermission,
+		Output: "error:\n" +
+			"fatal: could not read from remote repository\n",
+	}
+	output := failure.Error()
+
+	if strings.Contains(output, "\n") {
+		t.Fatal(output)
+	}
+
+	if !strings.Contains(output, "error:; fatal: could not read from remote repository") {
+		t.Fatal(output)
+	}
+}

@@ -15,8 +15,11 @@ var environmentFlags = map[string]string{
 	"JOBS":            "jobs",
 	"ATTEMPTS":        "attempts",
 	"DRY_RUN":         "dry-run",
+	"IGNORE_ERRORS":   "ignore-errors",
 	"LOG_LEVEL":       "log-level",
 	"FETCH_TIMEOUT":   "fetch-timeout",
+	"CATALOG_TIMEOUT": "catalog-timeout",
+	"CATALOG_BUDGET":  "catalog-budget",
 	"PROBE_TIMEOUT":   "probe-timeout",
 	"LOCAL_TIMEOUT":   "local-timeout",
 	"RETRY_DELAY":     "retry-delay",
@@ -42,11 +45,13 @@ func applyCommandEnv(command *cobra.Command, cfg *app.Config) error {
 // timeoutLocks reports durations this command already took from a flag or the environment.
 func timeoutLocks(command *cobra.Command) *app.TimeoutLocks {
 	return &app.TimeoutLocks{
-		Probe:   durationLocked(command, "probe-timeout", "PROBE_TIMEOUT"),
-		Fetch:   durationLocked(command, "fetch-timeout", "FETCH_TIMEOUT"),
-		Local:   durationLocked(command, "local-timeout", "LOCAL_TIMEOUT"),
-		Clone:   durationLocked(command, "clone-timeout", "CLONE_TIMEOUT"),
-		Archive: durationLocked(command, "archive-timeout", "ARCHIVE_TIMEOUT"),
+		Probe:         durationLocked(command, "probe-timeout", "PROBE_TIMEOUT"),
+		Fetch:         durationLocked(command, "fetch-timeout", "FETCH_TIMEOUT"),
+		Catalog:       durationLocked(command, "catalog-timeout", "CATALOG_TIMEOUT"),
+		CatalogBudget: durationLocked(command, "catalog-budget", "CATALOG_BUDGET"),
+		Local:         durationLocked(command, "local-timeout", "LOCAL_TIMEOUT"),
+		Clone:         durationLocked(command, "clone-timeout", "CLONE_TIMEOUT"),
+		Archive:       durationLocked(command, "archive-timeout", "ARCHIVE_TIMEOUT"),
 	}
 }
 

@@ -16,8 +16,6 @@ type Progress struct {
 	total int
 	// done is how many units have finished.
 	done int
-	// now reads the clock. Tests replace it.
-	now func() time.Time
 }
 
 // NewProgress starts a phase. A non-positive total means the size is still unknown.
@@ -30,7 +28,6 @@ func NewProgress(name string, total int) *Progress {
 		name:  name,
 		start: time.Now(),
 		total: total,
-		now:   time.Now,
 	}
 
 	return progress
@@ -63,17 +60,15 @@ func (p *Progress) Total() int {
 	return p.total
 }
 
-// Advance records one finished unit and writes a progress line.
+// Advance records one finished unit and writes an info progress line.
 // The repository name is colored when the destination is a terminal.
 func (p *Progress) Advance(ctx context.Context, repo, message string) {
-	if p == nil {
-		InfoKV(ctx, message, "repo", repo)
+	p.record(ctx, repo, message, false)
+}
 
-		return
-	}
-
-	p.done++
-	InfoKV(ctx, message, p.fields(repo)...)
+// Warn records one finished unit and writes a warning progress line.
+func (p *Progress) Warn(ctx context.Context, repo, message string) {
+	p.record(ctx, repo, message, true)
 }
 
 // Finish writes the current counts without counting another unit.
@@ -85,9 +80,32 @@ func (p *Progress) Finish(ctx context.Context, message string) {
 	InfoKV(ctx, message, p.fields("")...)
 }
 
+// record counts one unit and writes it at info or warning.
+func (p *Progress) record(ctx context.Context, repo, message string, warn bool) {
+	if p == nil {
+		p.write(ctx, message, warn, "repo", repo)
+
+		return
+	}
+
+	p.done++
+	p.write(ctx, message, warn, p.fields(repo)...)
+}
+
+// write sends one progress line at the chosen level.
+func (*Progress) write(ctx context.Context, message string, warn bool, fields ...any) {
+	if warn {
+		WarnKV(ctx, message, fields...)
+
+		return
+	}
+
+	InfoKV(ctx, message, fields...)
+}
+
 // fields is the comma-separated tail of one progress line.
 func (p *Progress) fields(repo string) []any {
-	elapsed := p.clock().Sub(p.start)
+	elapsed := time.Since(p.start)
 	fields := make([]any, 0, 12)
 
 	if repo != "" {
@@ -107,15 +125,6 @@ func (p *Progress) fields(repo string) []any {
 		"percent", percent,
 		"left", left,
 	)
-}
-
-// clock reads the phase clock.
-func (p *Progress) clock() time.Time {
-	if p.now == nil {
-		return time.Now()
-	}
-
-	return p.now()
 }
 
 // PaceText is the percent and the estimated remainder for one phase.

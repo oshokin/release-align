@@ -38,7 +38,7 @@ func TestRefreshPermissionErrorDoesNotPublish(t *testing.T) {
 
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 	if _, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options); err == nil ||
 		!bytes.Equal(readBytes(t, file), before) {
@@ -94,7 +94,7 @@ func TestRefreshRejectsSymlinkWorkspace(t *testing.T) {
 	cloneRel(t, f, "lamiona/search/new-indexer")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 	if _, err := RefreshWorkspace(
 		t.Context(),

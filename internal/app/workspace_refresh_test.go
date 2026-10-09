@@ -80,14 +80,14 @@ func TestRefreshAddOneOfTwo(t *testing.T) {
 	}
 }
 
-// TestRefreshAddAllIsIdempotent checks the first write and a byte-for-byte second run.
-func TestRefreshAddAllIsIdempotent(t *testing.T) {
+// TestRefreshSyncIsIdempotent checks the first write and a byte-for-byte second run.
+func TestRefreshSyncIsIdempotent(t *testing.T) {
 	f := setup(t)
 	file := workspaceFromScan(t, f)
 	rel := cloneRel(t, f, "lamiona/search/new-indexer")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 
 	result, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
@@ -104,7 +104,7 @@ func TestRefreshAddAllIsIdempotent(t *testing.T) {
 	}
 
 	if !bytes.Equal(readBytes(t, file), written) || !mtimeEqual(t, file, stamp) {
-		t.Fatal("repeat --add-all rewrote the file")
+		t.Fatal("repeat --sync rewrote the file")
 	}
 }
 
@@ -137,7 +137,7 @@ func TestRefreshPreservesManualIntent(t *testing.T) {
 	rel := cloneRel(t, f, "m/new")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 
 	result, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
@@ -196,6 +196,123 @@ func TestRefreshKeepsMissingPath(t *testing.T) {
 	loaded, err := LoadWorkspace(file)
 	if err != nil || loaded.Projects[0].Path != "group/repo with spaces" || loaded.Projects[1].Path != rel {
 		t.Fatal(loaded, err)
+	}
+}
+
+// TestRefreshSyncDropsMissingPath removes a gone directory and keeps a pin and a comment.
+func TestRefreshSyncDropsMissingPath(t *testing.T) {
+	f := setup(t)
+	body := "manifest:\n  defaults:\n    revision: refs/heads/master\n  projects:\n" +
+		"    # keep me\n    - name: existing\n      path: group/repo with spaces\n" +
+		"      revision: refs/tags/v1\n" +
+		"    # gone\n    - name: extra\n      path: group/gone\n" +
+		"release-align:\n  schema-version: 1\n"
+	file := filepath.Join(t.TempDir(), "workspace.yml")
+	write(t, file, body)
+	options := &WorkspaceRefreshOptions{
+		BaseDir: f.base,
+		Sync:    true,
+	}
+
+	result, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
+	if err != nil || !result.Written || !reflect.DeepEqual(result.Removed, []string{"group/gone"}) ||
+		len(result.Missing) != 0 || len(result.Added) != 0 {
+		t.Fatal(result, err)
+	}
+
+	text := string(readBytes(t, file))
+	kept := strings.Contains(text, "# keep me")
+	dropped := strings.Contains(text, "group/gone") || strings.Contains(text, "# gone")
+
+	if !kept || dropped {
+		t.Fatal(text)
+	}
+
+	loaded, err := LoadWorkspace(file)
+	if err != nil || len(loaded.Projects) != 1 || loaded.Projects[0].Path != "group/repo with spaces" ||
+		loaded.Projects[0].Revision.Tag != "v1" {
+		t.Fatal(loaded, err)
+	}
+
+	stamp := setPastMtime(t, file)
+	written := readBytes(t, file)
+
+	again, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
+	if err != nil || again.Written || !bytes.Equal(readBytes(t, file), written) || !mtimeEqual(t, file, stamp) {
+		t.Fatal(again, err)
+	}
+}
+
+// TestRefreshSyncRefusesAnEmptyTree leaves the file in place when every listed path is gone.
+func TestRefreshSyncRefusesAnEmptyTree(t *testing.T) {
+	f := setup(t)
+	file := workspaceFromScan(t, f)
+	before := readBytes(t, file)
+
+	if err := os.RemoveAll(f.repo); err != nil {
+		t.Fatal(err)
+	}
+
+	options := &WorkspaceRefreshOptions{
+		BaseDir: f.base,
+		Sync:    true,
+	}
+
+	_, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
+	if !errors.Is(err, ErrWorkspaceRefreshUsage) || !bytes.Equal(readBytes(t, file), before) {
+		t.Fatal(err)
+	}
+}
+
+// TestRefreshSyncPathDropsOnlyThatRepository leaves the other missing path in the file.
+func TestRefreshSyncPathDropsOnlyThatRepository(t *testing.T) {
+	f := setup(t)
+	spec := &WorkspaceSpec{
+		SchemaVersion: 1,
+		DefaultRevision: &RevisionSpec{
+			Branch: "master",
+		},
+		Projects: []*ProjectSpec{
+			{
+				Path: "group/repo with spaces",
+			},
+			{
+				Path: "group/gone",
+			},
+			{
+				Path: "group/also-gone",
+			},
+		},
+	}
+	file := saveWorkspace(t, spec)
+	options := &WorkspaceRefreshOptions{
+		BaseDir:   f.base,
+		Sync:      true,
+		SyncPaths: []string{"group/gone"},
+	}
+
+	result, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
+	if err != nil || !result.Written || !reflect.DeepEqual(result.Removed, []string{"group/gone"}) ||
+		!reflect.DeepEqual(result.Missing, []string{"group/also-gone"}) {
+		t.Fatal(result, err)
+	}
+
+	loaded, err := LoadWorkspace(file)
+	if err != nil || len(loaded.Projects) != 2 ||
+		loaded.Projects[0].Path != "group/repo with spaces" ||
+		loaded.Projects[1].Path != "group/also-gone" {
+		t.Fatal(loaded, err)
+	}
+
+	before := readBytes(t, file)
+	options.SyncPaths = []string{"no/such"}
+
+	_, err = RefreshWorkspace(t.Context(), offlineClient(f), file, options)
+	rejected := errors.Is(err, ErrWorkspaceRefreshUsage)
+	unchanged := bytes.Equal(readBytes(t, file), before)
+
+	if !rejected || !unchanged {
+		t.Fatal(err)
 	}
 }
 
@@ -324,7 +441,7 @@ func TestRefreshRejectsUnsafeSelection(t *testing.T) {
 		{
 			BaseDir: f.base,
 			Add:     []string{rel},
-			AddAll:  true,
+			Sync:    true,
 		},
 	}
 
@@ -372,7 +489,7 @@ func TestRefreshRejectsBrokenListedPath(t *testing.T) {
 	before := readBytes(t, file)
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 
 	if _, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options); err == nil ||
@@ -447,7 +564,7 @@ func TestRefreshLockRejectsASecondWriter(t *testing.T) {
 
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 	if _, err = RefreshWorkspace(
 		t.Context(),
@@ -475,7 +592,7 @@ func TestRefreshRefusesExternalEdit(t *testing.T) {
 	user := []byte("user edit\n")
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 		publish: &workspacePublishHooks{
 			beforeRename: func(path string) error {
 				return os.WriteFile(path, user, 0o600)
@@ -527,7 +644,7 @@ func TestRefreshCanceledScanDoesNotWrite(t *testing.T) {
 	cancel()
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
-		AddAll:  true,
+		Sync:    true,
 	}
 
 	if _, err := RefreshWorkspace(ctx, offlineClient(f), file, options); !errors.Is(err, context.Canceled) ||

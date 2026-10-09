@@ -104,6 +104,21 @@ func (*runner) itemsBlocked(items []*workspaceItem) bool {
 	return false
 }
 
+// holdBack stops every clean plan when one repository is blocked.
+// --ignore-errors leaves those plans in place.
+func (r *runner) holdBack(items []*workspaceItem) {
+	if r.ignoreErrors() || !r.itemsBlocked(items) {
+		return
+	}
+
+	r.blockReadyPlans(items)
+}
+
+// ignoreErrors reports that blocked repositories must not stop the others.
+func (r *runner) ignoreErrors() bool {
+	return r != nil && r.cfg != nil && r.cfg.IgnoreErrors
+}
+
 // blockReadyPlans stops clean plans because another repository is blocked.
 func (*runner) blockReadyPlans(items []*workspaceItem) {
 	for _, item := range items {

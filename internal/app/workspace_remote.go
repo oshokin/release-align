@@ -259,13 +259,59 @@ func gitlabToken(cfg *Config) string {
 	return os.Getenv("GITLAB_TOKEN")
 }
 
+// catalogBudget is Config.CatalogBudget. A nil config uses the built-in default.
+func catalogBudget(cfg *Config) time.Duration {
+	if cfg == nil || cfg.CatalogBudget <= 0 {
+		return DefaultConfig().CatalogBudget
+	}
+
+	return cfg.CatalogBudget
+}
+
+// catalogAttemptTimeout is one page attempt. It stays inside the catalog budget
+// so the remaining attempts and their pauses still fit.
+func catalogAttemptTimeout(cfg *Config) time.Duration {
+	page := DefaultConfig().CatalogTimeout
+	if cfg != nil && cfg.CatalogTimeout > 0 {
+		page = cfg.CatalogTimeout
+	}
+
+	budget := catalogBudget(cfg)
+	if page > budget {
+		return budget
+	}
+
+	attempts := 1
+	pause := time.Duration(0)
+
+	if cfg != nil && cfg.Attempts > 1 {
+		attempts = cfg.Attempts
+		if cfg.RetryDelay > 0 {
+			pause = cfg.RetryDelay
+		}
+	}
+
+	pauses := pause * time.Duration(attempts-1)
+	if pauses >= budget {
+		return page
+	}
+
+	share := (budget - pauses) / time.Duration(attempts)
+	if share < page {
+		return share
+	}
+
+	return page
+}
+
 // gitlabClient builds the thin API client for this invocation.
+// A projects page uses CatalogTimeout. The listing uses CatalogBudget.
 func gitlabClient(cfg *Config, source *GitLabSource) *gitlab.Client {
 	client := &gitlab.Client{
 		BaseURL:        source.URL,
 		Token:          gitlabToken(cfg),
-		AttemptTimeout: cfg.ProbeTimeout,
-		Budget:         cfg.FetchTimeout,
+		AttemptTimeout: catalogAttemptTimeout(cfg),
+		Budget:         catalogBudget(cfg),
 		Attempts:       cfg.Attempts,
 		RetryDelay:     cfg.RetryDelay,
 	}

@@ -189,6 +189,61 @@ func TestScanWorkspaceRejectsRootAndCancellation(t *testing.T) {
 	}
 }
 
+// TestAbsentWorkspaceFileAllowsAMissingPath accepts a path that can still be created.
+func TestAbsentWorkspaceFileAllowsAMissingPath(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "workspace.yml")
+
+	if err := AbsentWorkspaceFile(dest); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := oneProject(t, "group/service", nil)
+	if err := CreateWorkspaceFile(dest, spec); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAbsentWorkspaceFileRejectsAnExistingPath leaves a file and a symlink untouched.
+func TestAbsentWorkspaceFileRejectsAnExistingPath(t *testing.T) {
+	dir := t.TempDir()
+
+	dest := filepath.Join(dir, "workspace.yml")
+	if err := os.WriteFile(dest, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := AbsentWorkspaceFile(dest); !errors.Is(err, os.ErrExist) {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(dest)
+	if err != nil || string(body) != "keep\n" {
+		t.Fatal(string(body), err)
+	}
+
+	link := filepath.Join(dir, "link.yml")
+	if err = os.Symlink(dest, link); err != nil {
+		t.Skip(err)
+	}
+
+	if err = AbsentWorkspaceFile(link); !errors.Is(err, os.ErrExist) {
+		t.Fatal(err)
+	}
+
+	appeared := filepath.Join(dir, "later.yml")
+	if err = AbsentWorkspaceFile(appeared); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = os.WriteFile(appeared, []byte("race\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = AbsentWorkspaceFile(appeared); !errors.Is(err, os.ErrExist) {
+		t.Fatal(err)
+	}
+}
+
 // TestCreateWorkspaceFileNeverOverwrites verifies byte-for-byte preservation and schema round trips.
 func TestCreateWorkspaceFileNeverOverwrites(t *testing.T) {
 	spec := oneProject(t, "group/service", nil)
@@ -349,6 +404,38 @@ func TestScanWorkspaceKeepsPassedGitLabGroups(t *testing.T) {
 
 	if spec.GitLab == nil || spec.GitLab.URL != "https://git.example.com" || !spec.GitLabURLFromBase ||
 		!reflect.DeepEqual(spec.GitLab.Groups, []string{"lamiona"}) {
+		t.Fatalf("%+v", spec.GitLab)
+	}
+
+	checkout := filepath.Join(scan.host, "lamiona", "search", "calyra")
+	git(t, checkout, "remote", "set-url", "origin", "git@git.example.com:other/repo.git")
+	kept := scanWorkspace(t, scan.client, options)
+	if kept.GitLab == nil || !reflect.DeepEqual(kept.GitLab.Groups, []string{"lamiona"}) {
+		t.Fatalf("%+v", kept.GitLab)
+	}
+}
+
+// TestScanWorkspaceGuessesGitLabGroupsFromOrigins stores namespaces from origins on the saved host.
+func TestScanWorkspaceGuessesGitLabGroupsFromOrigins(t *testing.T) {
+	scan := newHostScan(t)
+	checkout := filepath.Join(scan.host, "lamiona", "search", "calyra")
+	git(t, checkout, "remote", "set-url", "origin", "git@git.example.com:Lamiona/Search/Calyra.git")
+
+	localName := filepath.Join(scan.host, "local-name", "repo")
+	git(t, scan.root, "clone", scan.remote, localName)
+	git(t, localName, "remote", "set-url", "origin", "ssh://git@git.example.com/mirrors/github.com/grpc/grpc.git")
+
+	foreign := filepath.Join(scan.host, "foreign", "repo")
+	git(t, scan.root, "clone", scan.remote, foreign)
+	git(t, foreign, "remote", "set-url", "origin", "git@other.example:skip/me.git")
+
+	options := &WorkspaceInitOptions{
+		BaseDir: scan.host,
+		Branch:  "master",
+	}
+	spec := scanWorkspace(t, scan.client, options)
+
+	if spec.GitLab == nil || !reflect.DeepEqual(spec.GitLab.Groups, []string{"Lamiona", "mirrors"}) {
 		t.Fatalf("%+v", spec.GitLab)
 	}
 }

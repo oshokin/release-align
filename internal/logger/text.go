@@ -9,6 +9,18 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// textLine is one formatted record.
+type textLine struct {
+	// when is the local clock value printed at the start of the line.
+	when time.Time
+	// level is the severity word.
+	level zapcore.Level
+	// message is the text before the key-value fields.
+	message string
+	// fields are the structured values, including repo when it is present.
+	fields []zapcore.Field
+}
+
 // textCore writes one human-readable log line.
 // A newline inside the message starts another line, so a file list can sit in a column.
 type textCore struct {
@@ -51,7 +63,13 @@ func (c *textCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.C
 //nolint:gocritic // hugeParam: zapcore.Core.Write requires Entry by value.
 func (c *textCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	all := slices.Concat(c.fields, fields)
-	_, err := c.out.Write(c.formatLine(ent.Time, ent.Level, ent.Message, all))
+	line := &textLine{
+		when:    ent.Time,
+		level:   ent.Level,
+		message: ent.Message,
+		fields:  all,
+	}
+	_, err := c.out.Write(c.formatLine(line))
 
 	return err
 }
@@ -82,14 +100,18 @@ func newTextCore(level zapcore.LevelEnabler, out zapcore.WriteSyncer, color bool
 }
 
 // formatLine renders time, level, repository, message, and any other fields.
-func (c *textCore) formatLine(when time.Time, level zapcore.Level, message string, fields []zapcore.Field) []byte {
-	repo, rest := c.splitRepo(fields)
+func (c *textCore) formatLine(line *textLine) []byte {
+	if line == nil {
+		return nil
+	}
+
+	repo, rest := c.splitRepo(line.fields)
 
 	var b bytes.Buffer
 
-	c.writeTint(&b, when.Format(timeLayout), ansiTime)
+	c.writeTint(&b, line.when.Format(timeLayout), ansiTime)
 	b.WriteString("  ")
-	c.writeTint(&b, c.padLevel(level), c.levelStyle(level.String()))
+	c.writeTint(&b, c.padLevel(line.level), c.levelStyle(line.level.String()))
 	b.WriteString("  ")
 
 	if repo != "" {
@@ -97,7 +119,7 @@ func (c *textCore) formatLine(when time.Time, level zapcore.Level, message strin
 		b.WriteString("  ")
 	}
 
-	b.WriteString(message)
+	b.WriteString(line.message)
 	c.writeFields(&b, rest)
 	b.WriteByte('\n')
 
