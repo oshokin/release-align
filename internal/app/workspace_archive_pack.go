@@ -156,7 +156,7 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 		path:    tempName,
 	}
 
-	return copyRepoZip(repoCtx, source)
+	return j.copyRepoZip(repoCtx, source)
 }
 
 // repoZipPath reserves an empty file in dir. git archive overwrites that absolute path.
@@ -177,7 +177,7 @@ func (j *archiveJob) repoZipPath(dir string) (string, error) {
 }
 
 // copyRepoZip copies one repository archive into the shared writer.
-func copyRepoZip(ctx context.Context, source *repoZipSource) error {
+func (*archiveJob) copyRepoZip(ctx context.Context, source *repoZipSource) error {
 	reader, err := zip.OpenReader(source.path)
 	if err != nil {
 		return archivePhase(source.project, "copy", err)

@@ -147,7 +147,9 @@ func TestReviewArchiveCancellationDuringLastEntry(t *testing.T) {
 		path:    path,
 	}
 
-	err = copyRepoZip(ctx, source)
+	job := &archiveJob{}
+	err = job.copyRepoZip(ctx, source)
+
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("last entry copy returned %v after cancellation; ctx=%v", err, ctx.Err())
 	}

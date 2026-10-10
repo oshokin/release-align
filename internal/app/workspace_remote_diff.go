@@ -330,13 +330,13 @@ func (d *remoteDiff) caseFolding() (bool, error) {
 		_ = os.Remove(name)
 	}()
 
-	_, err = os.Lstat(foldProbe(name))
+	_, err = os.Lstat(d.foldProbe(name))
 
 	return err == nil, nil
 }
 
 // foldProbe returns the same path with one letter's case flipped.
-func foldProbe(path string) string {
+func (*remoteDiff) foldProbe(path string) string {
 	buf := []byte(path)
 
 	for i := len(buf) - 1; i >= 0; i-- {

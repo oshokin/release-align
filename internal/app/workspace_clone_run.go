@@ -118,7 +118,7 @@ func (j *cloneJob) wantedClonePaths(query *clonePathQuery) (*clonePick, error) {
 			continue
 		}
 
-		accepted, acceptErr := acceptArchivedClone(project, opts.IncludeArchived, false)
+		accepted, acceptErr := j.acceptArchivedClone(project, opts.IncludeArchived, false)
 		if acceptErr != nil {
 			return nil, acceptErr
 		}
@@ -167,7 +167,7 @@ func (j *cloneJob) explicitClonePaths(
 		}
 
 		include := j.opts != nil && j.opts.IncludeArchived
-		if _, acceptErr := acceptArchivedClone(project, include, true); acceptErr != nil {
+		if _, acceptErr := j.acceptArchivedClone(project, include, true); acceptErr != nil {
 			return nil, acceptErr
 		}
 
@@ -401,7 +401,7 @@ func retryableCloneProbe(err error) bool {
 
 // acceptArchivedClone allows an archived project only when the flag asks for it.
 // --all skips the rest. An explicit --repo returns a usage error.
-func acceptArchivedClone(project *gitlab.Project, include, explicit bool) (bool, error) {
+func (*cloneJob) acceptArchivedClone(project *gitlab.Project, include, explicit bool) (bool, error) {
 	if project == nil {
 		return false, errCloneUnknown
 	}

@@ -11,7 +11,8 @@ import (
 // TestAuditFoldProbeChangesOnlyCase covers a probe name whose suffix is numeric.
 func TestAuditFoldProbeChangesOnlyCase(t *testing.T) {
 	path := "/tmp/.release-align-case-12345678"
-	got := foldProbe(path)
+	diff := &remoteDiff{}
+	got := diff.foldProbe(path)
 
 	if got == path || !strings.EqualFold(path, got) {
 		t.Fatalf("probe must change case only: original=%q changed=%q", path, got)

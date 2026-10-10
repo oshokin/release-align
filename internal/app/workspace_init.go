@@ -388,7 +388,7 @@ func (s *workspaceScanner) addProject(ctx context.Context, dir string) error {
 
 	projectPath := filepath.ToSlash(relative)
 
-	origin, originErr := readOriginURL(ctx, s.git, dir)
+	origin, originErr := s.readOriginURL(ctx, dir)
 	if originErr != nil {
 		if !errors.Is(originErr, errWorkspaceInitOrigin) && !errors.Is(originErr, errWorkspaceCredentialURL) {
 			return originErr
@@ -461,8 +461,8 @@ func confirmWorktree(ctx context.Context, g LocalGit, dir string) error {
 }
 
 // readOriginURL returns a credential-free origin and preserves operational Git failures.
-func readOriginURL(ctx context.Context, g LocalGit, dir string) (string, error) {
-	remote, err := g.Local(ctx, dir, "remote", "get-url", "origin")
+func (s *workspaceScanner) readOriginURL(ctx context.Context, dir string) (string, error) {
+	remote, err := s.git.Local(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {
 		if gitter.ExitCode(err) == 2 {
 			return "", errWorkspaceInitOrigin

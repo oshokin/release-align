@@ -213,8 +213,8 @@ func TestReviewYAMLKeyAnchorRejects(t *testing.T) {
 
 // TestReviewYAMLOriginCancellationPreserved must not downgrade cancellation to a missing URL.
 func TestReviewYAMLOriginCancellationPreserved(t *testing.T) {
-	client := new(reviewCanceledOrigin)
-	_, err := readOriginURL(t.Context(), client, t.TempDir())
+	scanner := &workspaceScanner{git: new(reviewCanceledOrigin)}
+	_, err := scanner.readOriginURL(t.Context(), t.TempDir())
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("lost cancellation: %v", err)
