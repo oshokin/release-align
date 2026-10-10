@@ -374,6 +374,10 @@ func setArchivedFlag(node *yaml.Node, archived bool) (bool, error) {
 	}
 
 	if user.Kind != yaml.MappingNode {
+		if !archived {
+			return false, nil
+		}
+
 		return false, fmt.Errorf("%w: userdata", errWorkspaceField)
 	}
 
@@ -391,6 +395,10 @@ func setArchivedFlag(node *yaml.Node, archived bool) (bool, error) {
 	}
 
 	if block.Kind != yaml.MappingNode {
+		if !archived {
+			return false, nil
+		}
+
 		return false, fmt.Errorf("%w: userdata.release-align", errWorkspaceField)
 	}
 

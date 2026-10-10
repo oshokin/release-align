@@ -266,7 +266,7 @@ func checkedInventory(source *GitLabSource, catalog *RemoteCatalog) *RemoteInven
 		Status:           remoteStatusChecked,
 		CheckedAt:        time.Now().Format(time.RFC3339),
 		IncludeSubgroups: boolPtr(true),
-		IncludeArchived:  boolPtr(false),
+		IncludeArchived:  boolPtr(true),
 		IncludeShared:    boolPtr(false),
 		Catalog:          catalog,
 	}

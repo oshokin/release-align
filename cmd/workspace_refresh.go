@@ -320,6 +320,10 @@ func (c *workspaceRefreshCommand) writeRemoteReport(out io.Writer, result *app.W
 		return err
 	}
 
+	if err := c.writeArchiveChanges(out, result); err != nil {
+		return err
+	}
+
 	if result.Written {
 		if err := c.writeRemovedPaths(out, result.Removed); err != nil {
 			return err
@@ -332,6 +336,10 @@ func (c *workspaceRefreshCommand) writeRemoteReport(out io.Writer, result *app.W
 
 	if !result.Written {
 		line := refreshNoChanges
+		if len(result.BecameArchived) > 0 || len(result.BecameActive) > 0 {
+			line = "No changes written. Use --remote --apply to store these archive marks."
+		}
+
 		if len(result.RemoteAbsent) > 0 {
 			line = "No changes written. Use --remote --sync to drop these paths from the workspace."
 		}
@@ -339,6 +347,38 @@ func (c *workspaceRefreshCommand) writeRemoteReport(out io.Writer, result *app.W
 		_, err := fmt.Fprintln(out, line)
 
 		return err
+	}
+
+	return nil
+}
+
+// writeArchiveChanges lists saved marks that differ from the catalog.
+func (*workspaceRefreshCommand) writeArchiveChanges(out io.Writer, result *app.WorkspaceRefreshResult) error {
+	if result == nil {
+		return nil
+	}
+
+	if err := writeRefreshPaths(out, "Now archived:", result.BecameArchived); err != nil {
+		return err
+	}
+
+	return writeRefreshPaths(out, "Now active:", result.BecameActive)
+}
+
+// writeRefreshPaths writes one heading and its paths. An empty list is omitted.
+func writeRefreshPaths(out io.Writer, title string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintln(out, title); err != nil {
+		return err
+	}
+
+	for _, path := range paths {
+		if _, err := fmt.Fprintf(out, "  %s\n", path); err != nil {
+			return err
+		}
 	}
 
 	return nil

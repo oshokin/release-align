@@ -122,7 +122,7 @@ func stashProjects(
 			continue
 		}
 
-		outcome, err := stashProject(ctx, git, base, project.Path)
+		outcome, err := stashProject(ctx, git, base, project)
 		if err != nil {
 			failed = errors.Join(failed, fmt.Errorf("%s: %w", project.Path, err))
 			phase.Warn(ctx, project.Path, "stash failed")
@@ -224,14 +224,38 @@ func recordStash(result *WorkspaceStashResult, record *StashRecord, kind string)
 	}
 }
 
+// stashIdentity refuses a named URL that is not this checkout's origin.
+func stashIdentity(ctx context.Context, git LocalGit, dir string, project *ProjectSpec) error {
+	if project == nil || strings.TrimSpace(project.URL) == "" {
+		return nil
+	}
+
+	origin, err := git.Local(ctx, dir, "remote", "get-url", "origin")
+	if err != nil {
+		return err
+	}
+
+	if remoteIdentity(project.URL, origin) != "" {
+		return fmt.Errorf("%s: %w", project.Path, errArchiveIdentity)
+	}
+
+	return nil
+}
+
 // stashProject pushes one dirty worktree or reports why it did not.
 func stashProject(
 	ctx context.Context,
 	git LocalGit,
 	base string,
-	path string,
+	project *ProjectSpec,
 ) (*stashOutcome, error) {
+	if project == nil {
+		return nil, errWorkspaceStashFlags
+	}
+
+	path := project.Path
 	dir, err := ResolveProjectDirectory(base, path)
+
 	if errors.Is(err, os.ErrNotExist) {
 		missing := &StashRecord{Path: path}
 		outcome := &stashOutcome{
@@ -243,6 +267,14 @@ func stashProject(
 	}
 
 	if err != nil {
+		return nil, err
+	}
+
+	if err = sameWorktreeRoot(ctx, git, dir); err != nil {
+		return nil, err
+	}
+
+	if err = stashIdentity(ctx, git, dir, project); err != nil {
 		return nil, err
 	}
 

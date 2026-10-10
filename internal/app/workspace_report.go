@@ -108,7 +108,7 @@ type RemoteInventory struct {
 	Groups []string `json:"groups,omitempty"`
 	// IncludeSubgroups reports that subgroups were requested.
 	IncludeSubgroups *bool `json:"include_subgroups,omitempty"`
-	// IncludeArchived reports that archived projects were excluded.
+	// IncludeArchived reports that the listing included archived projects.
 	IncludeArchived *bool `json:"include_archived,omitempty"`
 	// IncludeShared reports that shared projects were excluded.
 	IncludeShared *bool `json:"include_shared,omitempty"`
@@ -122,10 +122,16 @@ type RemoteInventory struct {
 
 // RemoteCatalog is the diff between GitLab, the disk, and the workspace file.
 type RemoteCatalog struct {
-	// VisibleCount is the number of non-archived projects in the listing.
+	// VisibleCount is the number of projects in the listing, including archived ones.
 	VisibleCount int `json:"visible_count"`
-	// NotCloned lists projects that can be downloaded.
+	// NotCloned lists active projects that can be downloaded.
 	NotCloned []string `json:"not_cloned"`
+	// NotClonedArchived lists archived projects that are not on disk.
+	NotClonedArchived []string `json:"not_cloned_archived"`
+	// BecameArchived lists workspace projects GitLab now reports as archived.
+	BecameArchived []string `json:"became_archived"`
+	// BecameActive lists workspace projects GitLab now reports as active.
+	BecameActive []string `json:"became_active"`
 	// LocalUnlisted lists clones that are not yet in the workspace file.
 	LocalUnlisted []string `json:"local_unlisted"`
 	// Conflicts lists paths that must not be replaced automatically.

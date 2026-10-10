@@ -32,14 +32,23 @@ func refreshFromRemote(
 	}
 
 	absent := absentFromCatalog(spec, projects)
+	becameArchived, becameActive := archiveStateChanges(spec, projects)
 	result := &WorkspaceRefreshResult{
-		Listed:       len(spec.Projects),
-		Remote:       true,
-		RemoteAbsent: absent,
+		Listed:         len(spec.Projects),
+		Remote:         true,
+		RemoteAbsent:   absent,
+		BecameArchived: becameArchived,
+		BecameActive:   becameActive,
 	}
 
 	if options.Apply {
-		return applyArchiveMarks(ctx, filename, options, projects)
+		applied, applyErr := applyArchiveMarks(ctx, filename, options, projects)
+		if applied != nil {
+			applied.BecameArchived = result.BecameArchived
+			applied.BecameActive = result.BecameActive
+		}
+
+		return applied, applyErr
 	}
 
 	if !options.Sync {
@@ -54,7 +63,19 @@ func refreshFromRemote(
 		return result, nil
 	}
 
+	if options.Delete {
+		if nestErr := deleteWouldRemoveKept(spec, absent); nestErr != nil {
+			return nil, nestErr
+		}
+	}
+
 	written, err := writeRemoteDrops(ctx, filename, options, absent)
+	if written != nil {
+		written.BecameArchived = result.BecameArchived
+		written.BecameActive = result.BecameActive
+		written.RemoteAbsent = result.RemoteAbsent
+	}
+
 	if err != nil || written == nil || !options.Delete || !written.Written {
 		return written, err
 	}
@@ -289,6 +310,81 @@ func dropListedProjects(spec *WorkspaceSpec, absent []string) []string {
 	spec.Projects = kept
 
 	return removed
+}
+
+// archiveStateChanges lists saved marks that differ from the catalog. A missing catalog row is not a change.
+func archiveStateChanges(spec *WorkspaceSpec, projects []*gitlab.Project) ([]string, []string) {
+	byPath := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		if project != nil && project.PathWithNamespace != "" {
+			byPath[project.PathWithNamespace] = project.Archived
+		}
+	}
+
+	var archived []string
+
+	var active []string
+
+	if spec == nil {
+		return archived, active
+	}
+
+	for _, project := range spec.Projects {
+		if project == nil {
+			continue
+		}
+
+		server, found := byPath[project.Path]
+		if !found || server == project.Archived {
+			continue
+		}
+
+		if server {
+			archived = append(archived, project.Path)
+
+			continue
+		}
+
+		active = append(active, project.Path)
+	}
+
+	return archived, active
+}
+
+// deleteWouldRemoveKept refuses a drop whose directory contains a project this run keeps.
+func deleteWouldRemoveKept(spec *WorkspaceSpec, absent []string) error {
+	if spec == nil {
+		return nil
+	}
+
+	gone := make(map[string]struct{}, len(absent))
+	for _, path := range absent {
+		gone[path] = struct{}{}
+	}
+
+	kept := make([]string, 0, len(spec.Projects))
+	for _, project := range spec.Projects {
+		if project == nil {
+			continue
+		}
+
+		if _, found := gone[project.Path]; found {
+			continue
+		}
+
+		kept = append(kept, project.Path)
+	}
+
+	for _, path := range absent {
+		prefix := path + "/"
+		for _, stay := range kept {
+			if strings.HasPrefix(stay, prefix) {
+				return refreshUsage(fmt.Errorf("%w: %s contains %s", errWorkspaceRefreshDeleteNested, path, stay))
+			}
+		}
+	}
+
+	return nil
 }
 
 // deleteDroppedCheckouts removes only the directories this run just dropped from the file.

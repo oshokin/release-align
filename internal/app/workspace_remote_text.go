@@ -115,13 +115,25 @@ func writeInventoryHead(w io.Writer, inventory *RemoteInventory) error {
 
 // writeCatalogLists prints only the buckets that need attention.
 func writeCatalogLists(w io.Writer, catalog *RemoteCatalog) error {
-	if _, err := fmt.Fprintf(w, "Visible non-archived projects: %d\n", catalog.VisibleCount); err != nil {
+	if _, err := fmt.Fprintf(w, "Visible projects: %d\n", catalog.VisibleCount); err != nil {
 		return err
 	}
 
 	notCloned := &catalogSection{
-		title: "Not cloned:",
+		title: "Not cloned, active:",
 		paths: catalog.NotCloned,
+	}
+	notClonedArchived := &catalogSection{
+		title: "Not cloned, archived:",
+		paths: catalog.NotClonedArchived,
+	}
+	becameArchived := &catalogSection{
+		title: "Now archived:",
+		paths: catalog.BecameArchived,
+	}
+	becameActive := &catalogSection{
+		title: "Now active:",
+		paths: catalog.BecameActive,
 	}
 	localUnlisted := &catalogSection{
 		title: "Cloned, not in workspace:",
@@ -149,6 +161,9 @@ func writeCatalogLists(w io.Writer, catalog *RemoteCatalog) error {
 	}
 	sections := []*catalogSection{
 		notCloned,
+		notClonedArchived,
+		becameArchived,
+		becameActive,
 		localUnlisted,
 		conflicts,
 		differentPath,
@@ -187,17 +202,32 @@ func writeNameSection(w io.Writer, title string, paths []string) error {
 
 // writeNextCommands suggests clone commands and does not run them.
 func writeNextCommands(w io.Writer, cfg *Config, catalog *RemoteCatalog) error {
-	if cfg == nil || (len(catalog.NotCloned) == 0 && len(catalog.LocalUnlisted) == 0) {
+	if cfg == nil {
+		return nil
+	}
+
+	if len(catalog.NotCloned) > 0 || len(catalog.LocalUnlisted) > 0 {
+		_, err := fmt.Fprintf(
+			w,
+			"Next: clone missing projects and include the visible scope in this workspace.\n"+
+				"%s\n  %s\nOr choose a project:\n  %s\n",
+			shellHint(),
+			cloneAllCommand(cfg),
+			cloneOneCommand(cfg, firstAttention(catalog), false),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(catalog.NotClonedArchived) == 0 {
 		return nil
 	}
 
 	_, err := fmt.Fprintf(
 		w,
-		"Next: clone missing projects and include the visible scope in this workspace.\n"+
-			"%s\n  %s\nOr choose a project:\n  %s\n",
-		shellHint(),
-		cloneAllCommand(cfg),
-		cloneOneCommand(cfg, firstAttention(catalog)),
+		"To download an archived project:\n  %s\n",
+		cloneOneCommand(cfg, catalog.NotClonedArchived[0], true),
 	)
 
 	return err
@@ -205,7 +235,9 @@ func writeNextCommands(w io.Writer, cfg *Config, catalog *RemoteCatalog) error {
 
 // catalogQuiet reports a checked catalog with nothing to show besides the count.
 func catalogQuiet(catalog *RemoteCatalog) bool {
-	return len(catalog.NotCloned) == 0 && len(catalog.LocalUnlisted) == 0 &&
+	return len(catalog.NotCloned) == 0 && len(catalog.NotClonedArchived) == 0 &&
+		len(catalog.BecameArchived) == 0 && len(catalog.BecameActive) == 0 &&
+		len(catalog.LocalUnlisted) == 0 &&
 		len(catalog.Conflicts) == 0 && len(catalog.DifferentPath) == 0 &&
 		len(catalog.NotReturned) == 0 && len(catalog.OutsideScope) == 0 &&
 		len(catalog.SkippedEmpty) == 0
@@ -231,9 +263,14 @@ func cloneAllCommand(cfg *Config) string {
 }
 
 // cloneOneCommand is one --repo invocation.
-func cloneOneCommand(cfg *Config, path string) string {
-	return "release-align workspace clone --workspace " + shellArg(cfg.WorkspaceFile) +
+func cloneOneCommand(cfg *Config, path string, includeArchived bool) string {
+	command := "release-align workspace clone --workspace " + shellArg(cfg.WorkspaceFile) +
 		" --base-dir " + shellArg(cfg.BaseDir) + " --repo " + shellArg(path)
+	if includeArchived {
+		command += " --include-archived"
+	}
+
+	return command
 }
 
 // inventoryHost returns the host portion of a GitLab URL.

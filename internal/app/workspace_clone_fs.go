@@ -38,13 +38,14 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 		return j.publishCloneError(j.opts, j.report, err)
 	}
 
+	marks := j.archivedMarks(items)
 	j.report.Next = j.nextSyncCommand(j.opts)
 
-	if len(selected) == 0 || ctx.Err() != nil {
-		if ctx.Err() != nil {
-			return j.report, context.Cause(ctx)
-		}
+	if ctx.Err() != nil {
+		return j.report, context.Cause(ctx)
+	}
 
+	if len(selected) == 0 && len(marks) == 0 {
 		return j.report, nil
 	}
 
@@ -56,8 +57,14 @@ func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneRepor
 	next := appended.spec
 	added := appended.added
 
-	if len(added) == 0 {
+	if len(added) == 0 && len(marks) == 0 {
 		return j.report, nil
+	}
+
+	if len(marks) > 0 {
+		if _, err = writeArchiveMarks(j.document.root, marks); err != nil {
+			return j.publishCloneError(j.opts, j.report, err)
+		}
 	}
 
 	if err = publishWorkspace(ctx, j.document, next, nil); err != nil {
@@ -111,7 +118,7 @@ func (j *cloneJob) cloneAdditions(query *cloneAdditionQuery) ([]*ProjectSpec, er
 		if project.Archived {
 			dir := filepath.Join(j.base, filepath.FromSlash(item.path))
 
-			oid, oidErr := j.client.Local(query.ctx, dir, "rev-parse", "--verify", "HEAD")
+			oid, oidErr := j.archivedPin(query.ctx, item, dir)
 			if oidErr != nil {
 				return nil, oidErr
 			}
@@ -125,6 +132,49 @@ func (j *cloneJob) cloneAdditions(query *cloneAdditionQuery) ([]*ProjectSpec, er
 	}
 
 	return selected, nil
+}
+
+// archivedMarks records listed projects whose successful clone must store archived=true.
+func (j *cloneJob) archivedMarks(items []*cloneItem) map[string]bool {
+	done := map[string]struct{}{}
+
+	if j.report != nil {
+		for _, path := range j.report.Paths {
+			done[path] = struct{}{}
+		}
+	}
+
+	marks := map[string]bool{}
+
+	for _, item := range items {
+		if item == nil || !item.listed || item.project == nil || !item.project.Archived {
+			continue
+		}
+
+		if _, finished := done[item.path]; !finished {
+			continue
+		}
+
+		marks[item.path] = true
+	}
+
+	return marks
+}
+
+// archivedPin is the commit stored for a new archived row.
+// A fresh clone uses the commit Git checked out. A reused checkout uses origin's default branch.
+func (j *cloneJob) archivedPin(ctx context.Context, item *cloneItem, dir string) (string, error) {
+	ref := "HEAD"
+
+	if item != nil && item.reuse {
+		if item.project == nil || item.project.DefaultBranch == "" {
+			return "", fmt.Errorf("%w: %s", errCloneBranch, item.path)
+		}
+
+		ref = "refs/remotes/origin/" + item.project.DefaultBranch
+	}
+
+	return j.client.Local(ctx, dir, "rev-parse", "--verify", ref)
 }
 
 // publishCloneError keeps the downloaded directories and names the recovery command.

@@ -17,6 +17,8 @@ type remotePlace struct {
 	exists bool
 	// empty reports a project that has no default branch.
 	empty bool
+	// archived reports a project GitLab has archived.
+	archived bool
 }
 
 // remoteDiffQuery is the input for one catalog classification.
@@ -115,6 +117,9 @@ func (d *remoteDiff) leftovers() {
 // finish sorts every name list. Empty lists stay empty arrays.
 func (d *remoteDiff) finish() {
 	d.catalog.NotCloned = d.sortNames(d.catalog.NotCloned)
+	d.catalog.NotClonedArchived = d.sortNames(d.catalog.NotClonedArchived)
+	d.catalog.BecameArchived = d.sortNames(d.catalog.BecameArchived)
+	d.catalog.BecameActive = d.sortNames(d.catalog.BecameActive)
 	d.catalog.LocalUnlisted = d.sortNames(d.catalog.LocalUnlisted)
 	d.catalog.Conflicts = d.sortNames(d.catalog.Conflicts)
 	d.catalog.NotReturned = d.sortNames(d.catalog.NotReturned)
@@ -146,11 +151,13 @@ func (d *remoteDiff) classify(project *gitlab.Project) {
 	matches := d.matches(project)
 	exists := d.targetExists(path)
 	placed := &remotePlace{
-		path:    path,
-		matches: matches,
-		exists:  exists,
-		empty:   project.DefaultBranch == "",
+		path:     path,
+		matches:  matches,
+		exists:   exists,
+		empty:    project.DefaultBranch == "",
+		archived: project.Archived,
 	}
+	d.noteArchive(project)
 	d.place(placed)
 }
 
@@ -187,7 +194,36 @@ func (d *remoteDiff) place(placed *remotePlace) {
 	}
 
 	if !placed.empty {
+		if placed.archived {
+			d.catalog.NotClonedArchived = append(d.catalog.NotClonedArchived, path)
+
+			return
+		}
+
 		d.catalog.NotCloned = append(d.catalog.NotCloned, path)
+	}
+}
+
+// noteArchive records a saved mark that no longer matches the catalog.
+func (d *remoteDiff) noteArchive(project *gitlab.Project) {
+	if d == nil || d.spec == nil || project == nil {
+		return
+	}
+
+	for _, listed := range d.spec.Projects {
+		if listed == nil || listed.Path != project.PathWithNamespace || listed.Archived == project.Archived {
+			continue
+		}
+
+		if project.Archived {
+			d.catalog.BecameArchived = append(d.catalog.BecameArchived, listed.Path)
+
+			return
+		}
+
+		d.catalog.BecameActive = append(d.catalog.BecameActive, listed.Path)
+
+		return
 	}
 }
 
@@ -322,13 +358,16 @@ func foldProbe(path string) string {
 // emptyCatalog returns the arrays required in a checked document.
 func emptyCatalog() *RemoteCatalog {
 	return &RemoteCatalog{
-		NotCloned:     []string{},
-		LocalUnlisted: []string{},
-		Conflicts:     []string{},
-		NotReturned:   []string{},
-		DifferentPath: []string{},
-		OutsideScope:  []string{},
-		SkippedEmpty:  []string{},
+		NotCloned:         []string{},
+		NotClonedArchived: []string{},
+		BecameArchived:    []string{},
+		BecameActive:      []string{},
+		LocalUnlisted:     []string{},
+		Conflicts:         []string{},
+		NotReturned:       []string{},
+		DifferentPath:     []string{},
+		OutsideScope:      []string{},
+		SkippedEmpty:      []string{},
 	}
 }
 

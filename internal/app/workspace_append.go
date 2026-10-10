@@ -64,7 +64,7 @@ func discoveredAdditions(selected []*ProjectSpec, known map[string]struct{}) ([]
 	additions := make([]*ProjectSpec, 0, len(selected))
 
 	for _, candidate := range selected {
-		if candidate == nil || !canonicalProjectPath(candidate.Path) || candidate.Revision != nil {
+		if candidate == nil || !canonicalProjectPath(candidate.Path) || !appendablePin(candidate.Revision) {
 			return nil, errWorkspaceAppendCandidate
 		}
 
@@ -77,4 +77,17 @@ func discoveredAdditions(selected []*ProjectSpec, known map[string]struct{}) ([]
 	}
 
 	return additions, nil
+}
+
+// appendablePin allows no pin, or one full commit. A branch or tag pin is not a discovery.
+func appendablePin(revision *RevisionSpec) bool {
+	if revision == nil {
+		return true
+	}
+
+	if revision.Branch != "" || revision.Tag != "" {
+		return false
+	}
+
+	return workspaceOID.MatchString(revision.Commit)
 }

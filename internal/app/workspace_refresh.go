@@ -54,6 +54,10 @@ type WorkspaceRefreshResult struct {
 	RemoteAbsent []string
 	// Deleted are checkouts removed after this run dropped them from the file.
 	Deleted []string
+	// BecameArchived are listed projects GitLab now reports as archived.
+	BecameArchived []string
+	// BecameActive are listed projects GitLab now reports as active.
+	BecameActive []string
 	// Written reports that the file was replaced.
 	Written bool
 }
@@ -103,6 +107,8 @@ var (
 	errWorkspaceRefreshEmptyRemote = errors.New(
 		"refusing to drop listed repositories; GitLab returned no projects",
 	)
+	// errWorkspaceRefreshDeleteNested means --delete would remove a directory that still holds a listed project.
+	errWorkspaceRefreshDeleteNested = errors.New("refusing to delete a directory that contains a listed project")
 )
 
 // RefreshWorkspace compares a workspace file with local clones.
