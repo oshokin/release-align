@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/oshokin/release-align/internal/gitlab"
 )
+
+// gitMetaDir is the worktree metadata entry. It is not itself a nested checkout.
+const gitMetaDir = ".git"
 
 // refreshFromRemote prints or drops listed paths the non-archived catalog did not return.
 // Directories stay unless Delete is set on the same --sync run that dropped them.
@@ -65,6 +70,10 @@ func refreshFromRemote(
 
 	if options.Delete {
 		if nestErr := deleteWouldRemoveKept(spec, absent); nestErr != nil {
+			return nil, nestErr
+		}
+
+		if nestErr := deleteWouldRemoveNested(options.BaseDir, absent); nestErr != nil {
 			return nil, nestErr
 		}
 	}
@@ -385,6 +394,97 @@ func deleteWouldRemoveKept(spec *WorkspaceSpec, absent []string) error {
 	}
 
 	return nil
+}
+
+// deleteWouldRemoveNested refuses a drop that contains a Git checkout this run is not deleting.
+// The candidate's own .git is not a nested checkout. Symlinks are not followed.
+func deleteWouldRemoveNested(base string, absent []string) error {
+	allowed := make(map[string]struct{}, len(absent))
+	for _, path := range absent {
+		allowed[path] = struct{}{}
+	}
+
+	for _, path := range absent {
+		dir, err := ResolveProjectDirectory(base, path)
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, errWorkspacePathKind) {
+			continue
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if err = nestedGitCheckout(dir, path, allowed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// nestedGitCheckout reports a worktree strictly inside root that is not an allowed deletion.
+func nestedGitCheckout(root, path string, allowed map[string]struct{}) error {
+	walkErr := filepath.WalkDir(root, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		if !entry.IsDir() || current == root {
+			return nil
+		}
+
+		if entry.Name() == gitMetaDir {
+			return filepath.SkipDir
+		}
+
+		marked, markErr := gitWorktree(current)
+		if markErr != nil {
+			return markErr
+		}
+
+		if !marked {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(root, current)
+		if relErr != nil {
+			return relErr
+		}
+
+		nested := path + "/" + filepath.ToSlash(rel)
+		if _, ok := allowed[nested]; ok {
+			return nil
+		}
+
+		return refreshUsage(fmt.Errorf("%w: %s contains %s", errWorkspaceRefreshDeleteNested, path, nested))
+	})
+	if walkErr == nil || errors.Is(walkErr, ErrWorkspaceRefreshUsage) {
+		return walkErr
+	}
+
+	return fmt.Errorf("%w: %w", errWorkspaceRefreshDeleteNested, walkErr)
+}
+
+// gitWorktree reports a directory whose .git is a real directory or a worktree file.
+func gitWorktree(dir string) (bool, error) {
+	info, err := os.Lstat(filepath.Join(dir, gitMetaDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, nil
+	}
+
+	return info.IsDir() || info.Mode().IsRegular(), nil
 }
 
 // deleteDroppedCheckouts removes only the directories this run just dropped from the file.

@@ -76,9 +76,12 @@ func newWorkspaceRefreshCommand(cfg *app.Config) *cobra.Command {
 			"--sync PATH limits that diff to the named paths. Repeat the path as an argument.\n" +
 			"--add appends exact paths and leaves missing listed paths in the file.\n" +
 			"A bare --sync refuses to write when no clones are found and every listed path is missing.\n" +
-			"--remote lists paths that the non-archived GitLab catalog did not return. Archived projects are in that list.\n" +
-			"--remote --sync drops those paths from the file and leaves the directories.\n" +
+			"--remote lists paths the GitLab catalog did not return. The catalog includes archived projects.\n" +
+			"A lifecycle change is printed separately and is not treated as an absent path.\n" +
+			"--remote --sync drops absent paths from the file and leaves the directories. It does not store archive marks.\n" +
+			"--remote --apply stores archive marks for projects already in the file and does not drop paths.\n" +
 			"--delete is allowed only with --remote --sync and removes only the directories that run just dropped.\n" +
+			"It refuses when another Git checkout sits inside a directory being removed.\n" +
 			"The command does not fetch or switch branches. Lazy-fetch suppression is best effort and depends on the installed Git.",
 		Args:          cobra.ArbitraryArgs,
 		RunE:          handler.run,
@@ -324,7 +327,11 @@ func (c *workspaceRefreshCommand) writeRemoteReport(out io.Writer, result *app.W
 		return err
 	}
 
-	if result.Written {
+	if result.Written && c.archiveMarksOnly(result) {
+		if _, err := fmt.Fprintln(out, "Archive marks stored."); err != nil {
+			return err
+		}
+	} else if result.Written {
 		if err := c.writeRemovedPaths(out, result.Removed); err != nil {
 			return err
 		}
@@ -335,38 +342,61 @@ func (c *workspaceRefreshCommand) writeRemoteReport(out io.Writer, result *app.W
 	}
 
 	if !result.Written {
-		line := refreshNoChanges
-		if len(result.BecameArchived) > 0 || len(result.BecameActive) > 0 {
-			line = "No changes written. Use --remote --apply to store these archive marks."
-		}
-
-		if len(result.RemoteAbsent) > 0 {
-			line = "No changes written. Use --remote --sync to drop these paths from the workspace."
-		}
-
-		_, err := fmt.Fprintln(out, line)
-
-		return err
+		return c.writeRefreshHints(out, result)
 	}
 
 	return nil
 }
 
+// writeRefreshHints prints every preview action. One diff does not hide the other.
+func (c *workspaceRefreshCommand) writeRefreshHints(out io.Writer, result *app.WorkspaceRefreshResult) error {
+	lines := make([]string, 0, 2)
+	if len(result.RemoteAbsent) > 0 {
+		lines = append(lines, "No changes written. Use --remote --sync to drop these paths from the workspace.")
+	}
+
+	if c.archiveMarksChanged(result) {
+		lines = append(lines, "No changes written. Use --remote --apply to store these archive marks.")
+	}
+
+	if len(lines) == 0 {
+		lines = append(lines, refreshNoChanges)
+	}
+
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(out, line); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// archiveMarksChanged reports a lifecycle difference that --apply would store.
+func (*workspaceRefreshCommand) archiveMarksChanged(result *app.WorkspaceRefreshResult) bool {
+	return result != nil && (len(result.BecameArchived) > 0 || len(result.BecameActive) > 0)
+}
+
+// archiveMarksOnly reports a write that stored archive marks and did not drop paths.
+func (c *workspaceRefreshCommand) archiveMarksOnly(result *app.WorkspaceRefreshResult) bool {
+	return c.archiveMarksChanged(result) && len(result.Removed) == 0
+}
+
 // writeArchiveChanges lists saved marks that differ from the catalog.
-func (*workspaceRefreshCommand) writeArchiveChanges(out io.Writer, result *app.WorkspaceRefreshResult) error {
+func (c *workspaceRefreshCommand) writeArchiveChanges(out io.Writer, result *app.WorkspaceRefreshResult) error {
 	if result == nil {
 		return nil
 	}
 
-	if err := writeRefreshPaths(out, "Now archived:", result.BecameArchived); err != nil {
+	if err := c.writeRefreshPaths(out, "Now archived:", result.BecameArchived); err != nil {
 		return err
 	}
 
-	return writeRefreshPaths(out, "Now active:", result.BecameActive)
+	return c.writeRefreshPaths(out, "Now active:", result.BecameActive)
 }
 
 // writeRefreshPaths writes one heading and its paths. An empty list is omitted.
-func writeRefreshPaths(out io.Writer, title string, paths []string) error {
+func (*workspaceRefreshCommand) writeRefreshPaths(out io.Writer, title string, paths []string) error {
 	if len(paths) == 0 {
 		return nil
 	}

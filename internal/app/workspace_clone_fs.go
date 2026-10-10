@@ -23,6 +23,16 @@ type cloneAdditionQuery struct {
 	ctx context.Context
 }
 
+// archivedPinChoice is the path, catalog branch, and reuse bit for one archived pin.
+type archivedPinChoice struct {
+	// path is the workspace path.
+	path string
+	// branch is the catalog default branch.
+	branch string
+	// reuse reports that the checkout is already on disk.
+	reuse bool
+}
+
 // publishClone appends completed new paths. It does not delete clones when the write fails.
 func (j *cloneJob) publish(ctx context.Context, items []*cloneItem) (*CloneReport, error) {
 	query := &cloneAdditionQuery{
@@ -162,19 +172,69 @@ func (j *cloneJob) archivedMarks(items []*cloneItem) map[string]bool {
 }
 
 // archivedPin is the commit stored for a new archived row.
-// A fresh clone uses the commit Git checked out. A reused checkout uses origin's default branch.
+// Both a fresh clone and a reused checkout must match origin's catalog default branch.
+// A reused checkout is not switched and is not fetched.
 func (j *cloneJob) archivedPin(ctx context.Context, item *cloneItem, dir string) (string, error) {
-	ref := "HEAD"
-
-	if item != nil && item.reuse {
-		if item.project == nil || item.project.DefaultBranch == "" {
-			return "", fmt.Errorf("%w: %s", errCloneBranch, item.path)
-		}
-
-		ref = "refs/remotes/origin/" + item.project.DefaultBranch
+	if j.client != nil {
+		j.client.NoLazyFetch = true
 	}
 
-	return j.client.Local(ctx, dir, "rev-parse", "--verify", ref)
+	choice := j.pinChoice(item)
+	if choice.branch == "" {
+		return "", fmt.Errorf("%w: %s", errCloneBranch, choice.path)
+	}
+
+	if _, err := j.client.Local(ctx, dir, "check-ref-format", "refs/heads/"+choice.branch); err != nil {
+		return "", fmt.Errorf("%w: %s", errCloneBranch, choice.path)
+	}
+
+	origin, err := j.client.Local(
+		ctx,
+		dir,
+		"rev-parse",
+		"--verify",
+		"refs/remotes/origin/"+choice.branch+"^{commit}",
+	)
+	if err != nil {
+		return "", err
+	}
+
+	origin = strings.TrimSpace(origin)
+	if !workspaceOID.MatchString(origin) {
+		return "", fmt.Errorf("%w: %s", errArchivedHead, choice.path)
+	}
+
+	if choice.reuse {
+		return origin, nil
+	}
+
+	head, err := j.client.Local(ctx, dir, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return "", err
+	}
+
+	if strings.TrimSpace(head) != origin {
+		return "", fmt.Errorf("%w: %s", errArchivedHead, choice.path)
+	}
+
+	return origin, nil
+}
+
+// pinChoice reads the path, catalog branch, and reuse bit for one pin.
+func (*cloneJob) pinChoice(item *cloneItem) *archivedPinChoice {
+	choice := &archivedPinChoice{}
+	if item == nil {
+		return choice
+	}
+
+	choice.path = item.path
+	choice.reuse = item.reuse
+
+	if item.project != nil {
+		choice.branch = item.project.DefaultBranch
+	}
+
+	return choice
 }
 
 // publishCloneError keeps the downloaded directories and names the recovery command.

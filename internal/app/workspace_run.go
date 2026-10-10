@@ -11,6 +11,14 @@ import (
 	"github.com/oshokin/release-align/internal/gitter"
 )
 
+// listedCatalogResult is the catalog read before checkout and the archive flags from before that read.
+type listedCatalogResult struct {
+	// projects is the catalog. Nil when --remote was not set.
+	projects []*gitlab.Project
+	// archiveBefore is each saved Archived flag, captured before the in-memory skip mark.
+	archiveBefore map[string]bool
+}
+
 // workspaceItemsRun is one sync or status pass over the selected projects.
 type workspaceItemsRun struct {
 	// cfg is the invocation settings.
@@ -53,7 +61,7 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 		NoLazyFetch:  true,
 	}
 
-	listedProjects, err := listedCatalog(ctx, cfg, spec)
+	listed, err := listedCatalog(ctx, cfg, spec)
 	if err != nil {
 		report.Errors = []string{err.Error()}
 		report.RemoteInventory = remoteNote(spec, remoteStatusFailed, "", err.Error())
@@ -94,12 +102,13 @@ func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode st
 	report, runErr = finishWorkspace(ctx, done)
 
 	check := &remoteCheck{
-		cfg:      cfg,
-		spec:     spec,
-		report:   report,
-		runErr:   runErr,
-		projects: listedProjects,
-		listed:   cfg.Remote,
+		cfg:           cfg,
+		spec:          spec,
+		report:        report,
+		runErr:        runErr,
+		projects:      listed.projects,
+		listed:        cfg.Remote,
+		archiveBefore: listed.archiveBefore,
 	}
 
 	return attachRemote(ctx, check)
@@ -134,9 +143,10 @@ func LogWorkspaceReport(ctx context.Context, report *WorkspaceReport, text bool)
 }
 
 // listedCatalog reads GitLab before checkout when --remote is set.
-func listedCatalog(ctx context.Context, cfg *Config, spec *WorkspaceSpec) ([]*gitlab.Project, error) {
+func listedCatalog(ctx context.Context, cfg *Config, spec *WorkspaceSpec) (*listedCatalogResult, error) {
+	result := &listedCatalogResult{}
 	if cfg == nil || !cfg.Remote {
-		return nil, nil
+		return result, nil
 	}
 
 	projects, err := listRemoteProjects(ctx, cfg, spec.GitLab)
@@ -144,9 +154,11 @@ func listedCatalog(ctx context.Context, cfg *Config, spec *WorkspaceSpec) ([]*gi
 		return nil, fmt.Errorf("%w: %w", errRemoteInventory, err)
 	}
 
+	result.projects = projects
+	result.archiveBefore = archiveFlags(spec)
 	noteServerArchived(spec, projects)
 
-	return projects, nil
+	return result, nil
 }
 
 // newWorkspaceReport builds the report shell before repositories are visited.

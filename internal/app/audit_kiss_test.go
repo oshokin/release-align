@@ -48,8 +48,9 @@ func TestAuditStashRefusesANestedDirectory(t *testing.T) {
 
 	write(t, filepath.Join(f.repo, "file"), "outside\n")
 	file := stashFile(t, "group/repo with spaces/nested")
+	options := &WorkspaceStashOptions{BaseDir: f.base}
 
-	_, err := StashWorkspace(t.Context(), stashGit(f), file, &WorkspaceStashOptions{BaseDir: f.base})
+	_, err := StashWorkspace(t.Context(), stashGit(f), file, options)
 	if !errors.Is(err, errWorkspaceRoot) || git(t, f.repo, "stash", "list") != "" {
 		t.Fatal(err)
 	}
@@ -76,8 +77,9 @@ func TestAuditStashRefusesADifferentOrigin(t *testing.T) {
 		}},
 	}
 	file := saveWorkspace(t, spec)
+	options := &WorkspaceStashOptions{BaseDir: f.base}
 
-	_, err := StashWorkspace(t.Context(), stashGit(f), file, &WorkspaceStashOptions{BaseDir: f.base})
+	_, err := StashWorkspace(t.Context(), stashGit(f), file, options)
 	if err == nil || !strings.Contains(err.Error(), "origin does not match") ||
 		git(t, f.repo, "stash", "list") != "" {
 		t.Fatal(err)
@@ -119,7 +121,8 @@ func TestAuditArchiveSkipsOriginWhenTheURLIsEmpty(t *testing.T) {
 	f := setup(t)
 	oid := git(t, f.repo, "rev-parse", "HEAD")
 	git(t, f.repo, "remote", "remove", "origin")
-	spec := archiveProject(&RevisionSpec{Commit: oid})
+	pin := &RevisionSpec{Commit: oid}
+	spec := archiveProject(pin)
 	file := writeWorkspace(t, f.base, spec)
 	dest := filepath.Join(f.base, "out.zip")
 	in := &archiveOptInput{fixture: f, workspace: file, dest: dest}
@@ -147,7 +150,8 @@ func TestAuditCatalogSplitsArchivedClones(t *testing.T) {
 	live := remoteProject(2, "group/live", "git@gitlab.example:group/live.git")
 	old := remoteProject(3, "group/old", "git@gitlab.example:group/old.git")
 	old.Archived = true
-	diff := newRemoteDiff(&remoteDiffQuery{spec: spec, base: t.TempDir()})
+	query := &remoteDiffQuery{spec: spec, base: t.TempDir()}
+	diff := newRemoteDiff(query)
 	diff.classify(missing)
 	diff.classify(live)
 	diff.classify(old)

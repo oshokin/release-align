@@ -210,6 +210,8 @@ var (
 	errCloneConflict = errors.New("target path conflicts with another repository")
 	// errCloneBranch means an explicitly requested project has no default branch.
 	errCloneBranch = errors.New("repository has no default branch")
+	// errArchivedHead means a new archived clone is not on the catalog default branch.
+	errArchivedHead = errors.New("cloned HEAD does not match the catalog default branch")
 	// errCloneURL means the clone URL is not an allowed ssh or https URL.
 	errCloneURL = errors.New("clone URL is not an ssh or https GitLab URL")
 	// errClonePartial means a later clone failed after earlier ones succeeded.

@@ -66,7 +66,7 @@ func writeSelectedLine(w io.Writer, report *WorkspaceReport) error {
 		}
 	}
 
-	line := fmt.Sprintf("Selected repositories: %d/%d ready", ready, report.ExpectedCount)
+	line := selectedReadyLine(report, ready)
 	if report.Release != "" {
 		line += " for " + report.Release
 	}
@@ -74,6 +74,20 @@ func writeSelectedLine(w io.Writer, report *WorkspaceReport) error {
 	_, err := fmt.Fprintln(w, line)
 
 	return err
+}
+
+// selectedReadyLine counts active rows. Archived rows are a separate count, not part of the denominator.
+func selectedReadyLine(report *WorkspaceReport, ready int) string {
+	if report.ActionableCount == 0 && report.SkippedArchivedCount > 0 {
+		return fmt.Sprintf("Selected repositories: 0 active, %d archived", report.SkippedArchivedCount)
+	}
+
+	line := fmt.Sprintf("Selected repositories: %d/%d ready", ready, report.ActionableCount)
+	if report.SkippedArchivedCount > 0 {
+		line += fmt.Sprintf(", %d archived", report.SkippedArchivedCount)
+	}
+
+	return line
 }
 
 // writeInventoryHead prints the catalog status and scope.

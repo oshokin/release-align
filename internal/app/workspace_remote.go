@@ -46,6 +46,8 @@ type remoteCheck struct {
 	projects []*gitlab.Project
 	// listed reports that projects was already read for this run.
 	listed bool
+	// archiveBefore is the saved Archived flag for each path, taken before the in-memory skip mark.
+	archiveBefore map[string]bool
 }
 
 // projectCompare is one complete catalog matched against disk and the workspace file.
@@ -163,9 +165,63 @@ func attachRemote(ctx context.Context, check *remoteCheck) (*WorkspaceReport, er
 		return failRemote(spec, report, runErr, err)
 	}
 
+	overlayArchiveDiff(inventory.Catalog, check.archiveBefore, projects)
 	report.RemoteInventory = inventory
 
 	return report, runErr
+}
+
+// archiveFlags copies the saved archive mark for each path.
+func archiveFlags(spec *WorkspaceSpec) map[string]bool {
+	if spec == nil {
+		return nil
+	}
+
+	flags := make(map[string]bool, len(spec.Projects))
+	for _, project := range spec.Projects {
+		if project != nil {
+			flags[project.Path] = project.Archived
+		}
+	}
+
+	return flags
+}
+
+// overlayArchiveDiff restores transitions that were computed against the file, not the in-memory skip mark.
+func overlayArchiveDiff(catalog *RemoteCatalog, before map[string]bool, projects []*gitlab.Project) {
+	if catalog == nil || before == nil {
+		return
+	}
+
+	server := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		if project != nil && project.PathWithNamespace != "" {
+			server[project.PathWithNamespace] = project.Archived
+		}
+	}
+
+	archived := make([]string, 0)
+	active := make([]string, 0)
+
+	for path, was := range before {
+		now, found := server[path]
+		if !found || now == was {
+			continue
+		}
+
+		if now {
+			archived = append(archived, path)
+
+			continue
+		}
+
+		active = append(active, path)
+	}
+
+	slices.Sort(archived)
+	slices.Sort(active)
+	catalog.BecameArchived = archived
+	catalog.BecameActive = active
 }
 
 // noteServerArchived marks listed projects that GitLab currently reports as archived.

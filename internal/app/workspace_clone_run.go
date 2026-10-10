@@ -233,7 +233,7 @@ func (j *cloneJob) cloneChoice(query *cloneChoiceQuery) *cloneItem {
 	project := query.project
 	path := query.path
 	inventory := query.inventory
-	reuse := !slices.Contains(inventory.Catalog.NotCloned, path)
+	reuse := j.checkoutPresent(inventory, path)
 	item := &cloneItem{
 		project: project,
 		path:    path,
@@ -242,6 +242,18 @@ func (j *cloneJob) cloneChoice(query *cloneChoiceQuery) *cloneItem {
 	}
 
 	return item
+}
+
+// checkoutPresent reports a catalog path that is already on disk.
+// Active and archived gaps are separate lists; absence from only one of them is not a checkout.
+func (*cloneJob) checkoutPresent(inventory *RemoteInventory, path string) bool {
+	if inventory == nil || inventory.Catalog == nil {
+		return false
+	}
+
+	catalog := inventory.Catalog
+
+	return !slices.Contains(catalog.NotCloned, path) && !slices.Contains(catalog.NotClonedArchived, path)
 }
 
 // cloneListed reports a project already stored in the workspace.

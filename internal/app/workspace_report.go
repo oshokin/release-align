@@ -146,6 +146,16 @@ type RemoteCatalog struct {
 	SkippedEmpty []string `json:"skipped_empty"`
 }
 
+// rowScore is one selected row's contribution to readiness.
+type rowScore struct {
+	// actionable is 1 when the row is part of the active selection.
+	actionable int
+	// skipped is 1 when the row is an archived skip.
+	skipped int
+	// ready reports that this row does not block the active selection.
+	ready bool
+}
+
 // MatchesContract is independent of outcome text and refuses unverified state.
 func (r *WorkspaceRow) MatchesContract() bool {
 	if r == nil || r.Expected == nil || r.Actual == nil || r.ReasonCode != "" || r.StashOID != "" {
@@ -212,10 +222,10 @@ func (r *WorkspaceReport) Finalize(expected []string) error {
 
 		seen[row.Path] = struct{}{}
 
-		rowActionable, rowSkipped, rowReady := r.scoreRow(row)
-		actionable += rowActionable
-		skippedArchived += rowSkipped
-		allReady = allReady && rowReady
+		scored := r.scoreRow(row)
+		actionable += scored.actionable
+		skippedArchived += scored.skipped
+		allReady = allReady && scored.ready
 	}
 
 	for _, p := range expected {
@@ -254,14 +264,22 @@ func WriteWorkspaceReport(dst io.Writer, report *WorkspaceReport) error {
 }
 
 // scoreRow counts one archived skip or one active row.
-func (r *WorkspaceReport) scoreRow(row *WorkspaceRow) (int, int, bool) {
+func (r *WorkspaceReport) scoreRow(row *WorkspaceRow) *rowScore {
 	if row.ReasonCode == reasonArchived {
 		row.Ready = false
+		scored := &rowScore{
+			skipped: 1,
+			ready:   true,
+		}
 
-		return 0, 1, true
+		return scored
 	}
 
 	row.Ready = !r.DryRun && row.MatchesContract()
+	scored := &rowScore{
+		actionable: 1,
+		ready:      row.Ready,
+	}
 
-	return 1, 0, row.Ready
+	return scored
 }
