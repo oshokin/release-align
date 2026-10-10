@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 	"time"
+
+	"go.uber.org/zap/zapcore"
 )
 
 // Progress counts one phase of a command and estimates what is left.
@@ -60,15 +62,29 @@ func (p *Progress) Total() int {
 	return p.total
 }
 
+// Start announces a phase before its first unit is attempted.
+func (p *Progress) Start(ctx context.Context) {
+	if p == nil {
+		return
+	}
+
+	InfoKV(ctx, "Starting phase", p.fields("")...)
+}
+
+// Error records one failed unit. The caller owns the final operation error.
+func (p *Progress) Error(ctx context.Context, repo, message string) {
+	p.record(ctx, repo, message, zapcore.ErrorLevel)
+}
+
 // Advance records one finished unit and writes an info progress line.
 // The repository name is colored when the destination is a terminal.
 func (p *Progress) Advance(ctx context.Context, repo, message string) {
-	p.record(ctx, repo, message, false)
+	p.record(ctx, repo, message, zapcore.InfoLevel)
 }
 
 // Warn records one finished unit and writes a warning progress line.
 func (p *Progress) Warn(ctx context.Context, repo, message string) {
-	p.record(ctx, repo, message, true)
+	p.record(ctx, repo, message, zapcore.WarnLevel)
 }
 
 // Finish writes the current counts without counting another unit.
@@ -80,27 +96,28 @@ func (p *Progress) Finish(ctx context.Context, message string) {
 	InfoKV(ctx, message, p.fields("")...)
 }
 
-// record counts one unit and writes it at info or warning.
-func (p *Progress) record(ctx context.Context, repo, message string, warn bool) {
+// record counts one completed or failed unit at the chosen severity.
+func (p *Progress) record(ctx context.Context, repo, message string, level zapcore.Level) {
 	if p == nil {
-		p.write(ctx, message, warn, "repo", repo)
+		p.write(ctx, message, level, "repo", repo)
 
 		return
 	}
 
 	p.done++
-	p.write(ctx, message, warn, p.fields(repo)...)
+	p.write(ctx, message, level, p.fields(repo)...)
 }
 
 // write sends one progress line at the chosen level.
-func (*Progress) write(ctx context.Context, message string, warn bool, fields ...any) {
-	if warn {
+func (*Progress) write(ctx context.Context, message string, level zapcore.Level, fields ...any) {
+	switch level {
+	case zapcore.ErrorLevel:
+		ErrorKV(ctx, message, fields...)
+	case zapcore.WarnLevel:
 		WarnKV(ctx, message, fields...)
-
-		return
+	default:
+		InfoKV(ctx, message, fields...)
 	}
-
-	InfoKV(ctx, message, fields...)
 }
 
 // fields is the comma-separated tail of one progress line.

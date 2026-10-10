@@ -56,7 +56,7 @@ func TestLogWorkspaceReportCollapsesCanceledRows(t *testing.T) {
 	}
 
 	synctest.Test(t, func(t *testing.T) {
-		ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.InfoLevel, &buf))
+		ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.DebugLevel, &buf))
 		started := time.Now().Add(-8 * time.Second)
 		report.Started = started
 		report.ProgressStarted = started
@@ -64,14 +64,14 @@ func TestLogWorkspaceReportCollapsesCanceledRows(t *testing.T) {
 	})
 
 	plain := buf.String()
-	warned := strings.Contains(plain, "WARN")
+	warned := strings.Contains(plain, "DEBUG")
 	blocked := strings.Contains(plain, "a/kept") && strings.Contains(plain, "outcome=blocked")
 
 	if !warned || !blocked {
 		t.Fatal(plain)
 	}
 
-	if !strings.Contains(plain, "INFO") || !strings.Contains(plain, "d/match") {
+	if !strings.Contains(plain, "DEBUG") || !strings.Contains(plain, "d/match") {
 		t.Fatal(plain)
 	}
 
@@ -93,7 +93,7 @@ func TestLogWorkspaceReportCollapsesPlanBlocked(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.InfoLevel, &buf))
+	ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.DebugLevel, &buf))
 	blocked := &WorkspaceRow{
 		Path:       "a/real",
 		Outcome:    outcomeBlocked,
@@ -126,7 +126,7 @@ func TestLogWorkspaceReportCollapsesPlanBlocked(t *testing.T) {
 	LogWorkspaceReport(ctx, report, true)
 
 	plain := buf.String()
-	warned := strings.Contains(plain, "a/real") && strings.Contains(plain, "WARN")
+	warned := strings.Contains(plain, "a/real") && strings.Contains(plain, "DEBUG")
 	counted := strings.Contains(plain, "count=2") && strings.Contains(plain, "plan_blocked")
 	hidden := !strings.Contains(plain, "b/one") && !strings.Contains(plain, "c/two")
 

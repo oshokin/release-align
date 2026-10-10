@@ -176,16 +176,16 @@ func (c *workspaceRefreshCommand) run(command *cobra.Command, args []string) err
 		Apply:     c.apply,
 	}
 
-	result, err := app.RefreshWorkspace(logged.ctx, logged.client, c.file, options)
-	if err != nil {
-		return c.refreshCommandError(err)
+	result, runErr := app.RefreshWorkspace(logged.ctx, logged.client, c.file, options)
+	if result != nil {
+		writeErr := c.writeRefreshReport(command.OutOrStdout(), result, runErr)
+		if writeErr != nil {
+			return c.refreshCommandError(errors.Join(runErr, writeErr))
+		}
 	}
 
-	if err = c.writeRefreshReport(command.OutOrStdout(), result); err != nil {
-		return &commandError{
-			code:  exitFailed,
-			cause: err,
-		}
+	if runErr != nil {
+		return c.refreshCommandError(runErr)
 	}
 
 	return nil
@@ -217,7 +217,7 @@ func (c *workspaceRefreshCommand) refreshLogger(command *cobra.Command) (*refres
 		NoLazyFetch:  true,
 	}
 	logged := &refreshLog{
-		ctx:    withCommandLog(command, false, c.cfg.LogLevel),
+		ctx:    withCommandLog(command, c.cfg.LogLevel),
 		client: client,
 	}
 
@@ -268,9 +268,18 @@ func (*workspaceRefreshCommand) refreshCommandError(err error) error {
 }
 
 // writeRefreshReport prints the inventory diff. It does not claim that revisions are ready.
-func (c *workspaceRefreshCommand) writeRefreshReport(out io.Writer, result *app.WorkspaceRefreshResult) error {
+// A later failure still prints effects that were already stored.
+func (c *workspaceRefreshCommand) writeRefreshReport(
+	out io.Writer,
+	result *app.WorkspaceRefreshResult,
+	runErr error,
+) error {
 	if result == nil {
 		return errWorkspaceRefreshFlags
+	}
+
+	if runErr != nil {
+		return c.writeIncompleteRefresh(out, result)
 	}
 
 	if result.Remote {
@@ -311,6 +320,91 @@ func (c *workspaceRefreshCommand) writeRefreshReport(out io.Writer, result *app.
 	)
 
 	return err
+}
+
+// writeIncompleteRefresh prints effects that already happened, then the caller returns the error.
+// It does not claim that a requested deletion finished.
+func (c *workspaceRefreshCommand) writeIncompleteRefresh(out io.Writer, result *app.WorkspaceRefreshResult) error {
+	if result == nil || !result.Written {
+		return nil
+	}
+
+	if _, err := fmt.Fprintln(out, "Refresh: incomplete."); err != nil {
+		return err
+	}
+
+	if err := c.writeRefreshMutations(out, result); err != nil {
+		return err
+	}
+
+	if !c.delete {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(out, "Directories deleted: %d.\n", len(result.Deleted)); err != nil {
+		return err
+	}
+
+	for _, path := range c.refreshLeft(result) {
+		if _, err := fmt.Fprintf(out, "Deletion did not complete: %s.\n", path); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeRefreshMutations states which workspace-file edits were stored.
+func (c *workspaceRefreshCommand) writeRefreshMutations(out io.Writer, result *app.WorkspaceRefreshResult) error {
+	if len(result.Removed) > 0 {
+		if _, err := fmt.Fprintln(out, c.refreshCountLine("removed", len(result.Removed))); err != nil {
+			return err
+		}
+	}
+
+	if len(result.Added) > 0 {
+		if _, err := fmt.Fprintln(out, c.refreshCountLine("added", len(result.Added))); err != nil {
+			return err
+		}
+	}
+
+	if len(result.Removed) == 0 && len(result.Added) == 0 {
+		_, err := fmt.Fprintln(out, "Workspace file updated.")
+
+		return err
+	}
+
+	return nil
+}
+
+// refreshCountLine is one stored membership change.
+func (*workspaceRefreshCommand) refreshCountLine(action string, count int) string {
+	noun := "entries"
+	if count == 1 {
+		noun = "entry"
+	}
+
+	return fmt.Sprintf("Workspace file updated: %d %s %s.", count, noun, action)
+}
+
+// refreshLeft lists dropped paths whose directories were not removed.
+func (*workspaceRefreshCommand) refreshLeft(result *app.WorkspaceRefreshResult) []string {
+	deleted := make(map[string]struct{}, len(result.Deleted))
+	for _, path := range result.Deleted {
+		deleted[path] = struct{}{}
+	}
+
+	left := make([]string, 0)
+
+	for _, path := range result.Removed {
+		if _, ok := deleted[path]; ok {
+			continue
+		}
+
+		left = append(left, path)
+	}
+
+	return left
 }
 
 // writeRemoteReport prints paths the non-archived catalog did not return.

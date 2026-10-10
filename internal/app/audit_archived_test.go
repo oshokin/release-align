@@ -56,7 +56,7 @@ func TestAuditExplicitArchivedCloneRequiresOptIn(t *testing.T) {
 		Archived:          true,
 	}
 
-	job := &cloneJob{}
+	job := new(cloneJob)
 	accepted, err := job.acceptArchivedClone(project, false, true)
 
 	if err == nil || accepted {

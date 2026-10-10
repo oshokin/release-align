@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // Client runs the installed git executable.
@@ -77,7 +79,16 @@ func (c *Client) Run(ctx context.Context, dir string, timeout time.Duration, arg
 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	started := time.Now()
+
+	if logger.DebugEnabled(ctx) {
+		ctx = logger.WithKV(ctx, "dir", dir)
+		ctx = logger.WithKV(ctx, "args", RedactText(strings.Join(args, " ")))
+		logger.DebugKV(ctx, "Running Git", "timeout", timeout)
+	}
+
 	err := cmd.Run()
+	logger.DebugKV(ctx, "Git finished", "elapsed", time.Since(started), "error", err)
 
 	if ctx.Err() != nil {
 		err = ctx.Err()

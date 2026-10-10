@@ -50,7 +50,7 @@ func TestStashLogsEveryRepository(t *testing.T) {
 
 	var out bytes.Buffer
 
-	ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.InfoLevel, &out))
+	ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.DebugLevel, &out))
 
 	options := &WorkspaceStashOptions{BaseDir: f.base}
 
@@ -61,7 +61,7 @@ func TestStashLogsEveryRepository(t *testing.T) {
 
 	text := out.String()
 	loggedClean := stashLineLevel(text, "group/clean", "clean, phase=stash") == "INFO"
-	loggedDirty := stashLineLevel(text, "group/repo with spaces", "stashed ") == "WARN"
+	loggedDirty := stashLineLevel(text, "group/repo with spaces", "stashed ") == "INFO"
 	finished := strings.Contains(text, "finished") && strings.Contains(text, "done=2/2") &&
 		strings.Contains(text, "left=0s") && strings.Contains(text, ", stashed=")
 
@@ -190,7 +190,7 @@ func TestStashRejectsAnEmptyRequest(t *testing.T) {
 		t.Fatal("nil git accepted")
 	}
 
-	empty := &WorkspaceStashOptions{}
+	empty := new(WorkspaceStashOptions)
 
 	_, err = StashWorkspace(t.Context(), stashGit(f), file, empty)
 	if err == nil {

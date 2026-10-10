@@ -312,6 +312,8 @@ func discoverWorkspaceProjects(ctx context.Context, g LocalGit, base string) (*d
 		progress: logger.NewProgress("scan", 0),
 	}
 
+	scanner.progress.Start(ctx)
+
 	err := filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -475,7 +477,7 @@ func (s *workspaceScanner) readOriginURL(ctx context.Context, dir string) (strin
 		return "", errWorkspaceInitOrigin
 	}
 
-	if !acceptableOrigin(remote) {
+	if !s.acceptableOrigin(remote) {
 		return "", errWorkspaceCredentialURL
 	}
 
@@ -483,7 +485,7 @@ func (s *workspaceScanner) readOriginURL(ctx context.Context, dir string) (strin
 }
 
 // acceptableOrigin rejects a password or an HTTPS userinfo. ssh://git@host stays.
-func acceptableOrigin(raw string) bool {
+func (*workspaceScanner) acceptableOrigin(raw string) bool {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.ContainsAny(raw, "\r\n\t ") {
 		return false

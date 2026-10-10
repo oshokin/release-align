@@ -150,7 +150,7 @@ func (n *archiveNames) archiveEntryKind(name string, mode os.FileMode) string {
 }
 
 // allowedRepoEntry reports that name is the project, a path inside it, or a parent directory.
-func allowedRepoEntry(name, project string) bool {
+func (*archiveJob) allowedRepoEntry(name, project string) bool {
 	key := strings.TrimSuffix(name, "/")
 	if key == project || strings.HasPrefix(name, project+"/") {
 		return true

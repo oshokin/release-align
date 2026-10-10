@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/oshokin/release-align/internal/gitter"
 )
 
@@ -70,7 +72,7 @@ func TestScanWorkspaceFindsNestedGroups(t *testing.T) {
 	}
 
 	second, err := ScanWorkspace(t.Context(), client, options)
-	if err != nil || !reflect.DeepEqual(spec, second) {
+	if err != nil || !cmp.Equal(spec, second, specCompare) {
 		t.Fatalf("not deterministic: %v", err)
 	}
 
@@ -259,7 +261,7 @@ func TestCreateWorkspaceFileNeverOverwrites(t *testing.T) {
 	}
 
 	loaded, err := LoadWorkspace(dest)
-	if err != nil || !reflect.DeepEqual(loaded, spec) {
+	if err != nil || !cmp.Equal(loaded, spec, specCompare) {
 		t.Fatal(loaded, err)
 	}
 

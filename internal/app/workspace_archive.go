@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // WorkspaceArchiveOptions selects repositories and the destination ZIP.
@@ -161,6 +162,8 @@ func ArchiveWorkspace(ctx context.Context, opts *WorkspaceArchiveOptions) (*Arch
 
 	defer unlock()
 
+	logger.Info(ctx, "Validating archive repositories and revisions")
+
 	planned, err := job.plan()
 	if err != nil {
 		return archiveFailed(report, err)
@@ -305,7 +308,7 @@ func countGitlinks(planned []*plannedRepo) int {
 }
 
 // archivePhase wraps a packing failure with the repository and the step that stopped.
-func archivePhase(path, phase string, err error) error {
+func (*archiveJob) archivePhase(path, phase string, err error) error {
 	if err == nil {
 		return nil
 	}

@@ -35,6 +35,8 @@ type workspaceItemsRun struct {
 // mode is sync or status. The returned report is non-nil when spec is non-nil.
 func RunWorkspace(ctx context.Context, cfg *Config, spec *WorkspaceSpec, mode string) (*WorkspaceReport, error) {
 	report := newWorkspaceReport(cfg, spec, mode)
+	defer func() { report.Interrupted = ctx.Err() != nil }()
+
 	if cfg == nil || spec == nil {
 		report.Errors = []string{errConfigNil.Error()}
 
@@ -129,7 +131,7 @@ func ExitCodeForWorkspace(err error) int {
 	}
 }
 
-// LogWorkspaceReport writes a human summary. Text mode also lists repository results.
+// LogWorkspaceReport writes debug diagnostics. The command prints the result separately.
 func LogWorkspaceReport(ctx context.Context, report *WorkspaceReport, text bool) {
 	if report == nil {
 		return
@@ -144,7 +146,7 @@ func LogWorkspaceReport(ctx context.Context, report *WorkspaceReport, text bool)
 
 // listedCatalog reads GitLab before checkout when --remote is set.
 func listedCatalog(ctx context.Context, cfg *Config, spec *WorkspaceSpec) (*listedCatalogResult, error) {
-	result := &listedCatalogResult{}
+	result := new(listedCatalogResult)
 	if cfg == nil || !cfg.Remote {
 		return result, nil
 	}

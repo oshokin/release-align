@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +20,16 @@ type workspaceStashCommand struct {
 	baseDir string
 	// file is the workspace document.
 	file string
+}
+
+// stashRecordList is one section of the stash report.
+type stashRecordList struct {
+	// title is the heading. An empty record list omits the section.
+	title string
+	// records are the stash ids in this section.
+	records []*app.StashRecord
+	// note is appended to each line. Empty for a new stash.
+	note string
 }
 
 // errWorkspaceStashFlags means the file has no base-dir and the flag was omitted.
@@ -107,11 +120,137 @@ func (c *workspaceStashCommand) run(command *cobra.Command, _ []string) error {
 	options := &app.WorkspaceStashOptions{
 		BaseDir: c.baseDir,
 	}
-	ctx := withCommandLog(command, false, c.cfg.LogLevel)
+	ctx := withCommandLog(command, c.cfg.LogLevel)
 
-	_, err = app.StashWorkspace(ctx, client, c.file, options)
-	if err != nil {
-		return c.stashCommandError(err)
+	result, runErr := app.StashWorkspace(ctx, client, c.file, options)
+	if writeErr := c.writeStashReport(command.OutOrStdout(), result, runErr); writeErr != nil {
+		return c.stashCommandError(errors.Join(runErr, writeErr))
+	}
+
+	if runErr != nil {
+		return c.stashCommandError(runErr)
+	}
+
+	return nil
+}
+
+// writeStashReport prints the stash result. A nil result means the run did not start.
+// An existing stash was not updated, so the line says that no new stash was created.
+func (c *workspaceStashCommand) writeStashReport(
+	w io.Writer,
+	result *app.WorkspaceStashResult,
+	runErr error,
+) error {
+	if w == nil || result == nil {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(
+		w,
+		"Stash: %s. Created: %d. Existing: %d. Clean: %d. Missing: %d.\n",
+		c.stashState(runErr),
+		len(result.Stashed),
+		len(result.Kept),
+		result.Clean,
+		len(result.Missing),
+	); err != nil {
+		return err
+	}
+
+	saved := &stashRecordList{
+		title:   "Saved:",
+		records: result.Stashed,
+	}
+	if err := c.writeStashRecords(w, saved); err != nil {
+		return err
+	}
+
+	existing := &stashRecordList{
+		title:   "Existing:",
+		records: result.Kept,
+		note:    "; no new stash created",
+	}
+	if err := c.writeStashRecords(w, existing); err != nil {
+		return err
+	}
+
+	return c.writeStashRemainder(w, result)
+}
+
+// stashState is the one-word outcome printed before the counts.
+func (*workspaceStashCommand) stashState(runErr error) string {
+	switch {
+	case runErr == nil:
+		return reportCompleted
+	case errors.Is(runErr, context.Canceled), errors.Is(runErr, context.DeadlineExceeded):
+		return "interrupted"
+	default:
+		return "failed"
+	}
+}
+
+// writeStashRecords prints one heading and the paths that have a stash oid.
+func (*workspaceStashCommand) writeStashRecords(w io.Writer, list *stashRecordList) error {
+	if list == nil || len(list.records) == 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintln(w, list.title); err != nil {
+		return err
+	}
+
+	for _, record := range list.records {
+		if record == nil {
+			continue
+		}
+
+		if _, err := fmt.Fprintf(w, "  %s  %s%s\n", record.Path, record.OID, list.note); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeStashRemainder prints missing paths, failures, and paths the run did not reach.
+func (c *workspaceStashCommand) writeStashRemainder(w io.Writer, result *app.WorkspaceStashResult) error {
+	if err := c.writeStashPaths(w, "Missing:", result.Missing); err != nil {
+		return err
+	}
+
+	if len(result.Failed) > 0 {
+		if _, err := fmt.Fprintln(w, "Failed:"); err != nil {
+			return err
+		}
+
+		for _, failure := range result.Failed {
+			if failure == nil {
+				continue
+			}
+
+			if _, err := fmt.Fprintf(w, "  %s  %s\n", failure.Path, failure.Error); err != nil {
+				return err
+			}
+		}
+	}
+
+	return c.writeStashPaths(w, "Not started:", result.NotStarted)
+}
+
+// writeStashPaths prints one heading and its paths. An empty list is omitted.
+func (*workspaceStashCommand) writeStashPaths(w io.Writer, title string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintln(w, title); err != nil {
+		return err
+	}
+
+	for _, path := range paths {
+		if _, err := fmt.Fprintf(w, "  %s\n", path); err != nil {
+			return err
+		}
 	}
 
 	return nil

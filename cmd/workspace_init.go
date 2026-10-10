@@ -135,7 +135,7 @@ func (c *workspaceInitCommand) run(command *cobra.Command, _ []string) error {
 		NoLazyFetch:  true,
 	}
 
-	ctx := withCommandLog(command, false, c.cfg.LogLevel)
+	ctx := withCommandLog(command, c.cfg.LogLevel)
 
 	spec, err := app.ScanWorkspace(ctx, client, c.options)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oshokin/release-align/internal/logger"
 	"github.com/oshokin/release-align/internal/retry"
 )
 
@@ -81,7 +82,10 @@ func (c *Client) withRetry(ctx context.Context, op func(context.Context) error) 
 		return err
 	}
 
-	err := retry.Do(ctx, cfg, wrapped)
+	onRetry := retry.WithOnRetry(func(ctx context.Context, info *retry.AttemptInfo) {
+		logger.Warnf(ctx, "GitLab request failed; next attempt in %s: %v", info.Delay, info.Err)
+	})
+	err := retry.Do(ctx, cfg, wrapped, onRetry)
 
 	if timeout, ok := errors.AsType[*attemptTimeoutError](err); ok && timeout != nil {
 		return timeout.cause

@@ -85,6 +85,8 @@ type WorkspaceReport struct {
 	Rows []*WorkspaceRow `json:"repositories"`
 	// RemoteInventory is the GitLab comparison for this invocation.
 	RemoteInventory *RemoteInventory `json:"remote_inventory,omitempty"`
+	// Interrupted records cancellation even when no repository rows could be built.
+	Interrupted bool `json:"-"`
 	// Started is when this run began. It is not part of the JSON report.
 	Started time.Time `json:"-"`
 	// ProgressStarted is when the latest phase began.

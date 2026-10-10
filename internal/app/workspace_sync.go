@@ -54,7 +54,7 @@ func (r *runner) syncWorkspace(ctx context.Context, items []*workspaceItem) (str
 func (r *runner) workspacePreflight(ctx context.Context, items []*workspaceItem) error {
 	checked := map[string]struct{}{}
 
-	r.beginPhase("probe", r.probeCount(items))
+	r.beginPhase(ctx, "probe", r.probeCount(items))
 
 	for _, item := range items {
 		if item.repo == nil || !rowPending(item.row) {
@@ -66,9 +66,8 @@ func (r *runner) workspacePreflight(ctx context.Context, items []*workspaceItem)
 		}
 
 		err := r.probe(ctx, item.repo)
-		r.step(ctx, item.repo.relative, "origin checked")
-
 		if err == nil {
+			r.step(ctx, item.repo.relative, "origin checked")
 			checked[item.repo.endpoint] = struct{}{}
 
 			continue
@@ -79,6 +78,8 @@ func (r *runner) workspacePreflight(ctx context.Context, items []*workspaceItem)
 
 			return context.Cause(ctx)
 		}
+
+		r.stepLevel(ctx, item.repo.relative, "origin check failed", true)
 
 		if gitter.NetworkError(err) {
 			r.noteOutage(items, err)

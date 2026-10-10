@@ -56,7 +56,7 @@ func (*runner) workspaceRefName(revision *RevisionSpec) string {
 
 // planWorkspace decides the outcome of every pending repository.
 func (r *runner) planWorkspace(ctx context.Context, items []*workspaceItem) error {
-	r.beginPhase("plan", r.pendingCount(items))
+	r.beginPhase(ctx, "plan", r.pendingCount(items))
 
 	for _, item := range items {
 		if !rowPending(item.row) {
@@ -106,7 +106,7 @@ func (r *runner) readCached(ctx context.Context, items []*workspaceItem, plan bo
 		phase = "plan"
 	}
 
-	r.beginPhase(phase, r.pendingCount(items))
+	r.beginPhase(ctx, phase, r.pendingCount(items))
 
 	for _, item := range items {
 		if !rowPending(item.row) {

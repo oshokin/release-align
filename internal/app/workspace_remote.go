@@ -12,6 +12,7 @@ import (
 
 	"github.com/oshokin/release-align/internal/gitlab"
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // remoteHooks replaces GitLab access in tests. Production leaves it nil.
@@ -77,6 +78,8 @@ const (
 	remoteReasonNetwork = "prior_network_failure"
 	// remoteNotCheckedMsg tells the user the run used saved archive marks.
 	remoteNotCheckedMsg = "GitLab lifecycle: not checked; using workspace flags"
+	// inventoryProgress is the catalog progress line. The logger level decides whether it appears.
+	inventoryProgress = "Checking GitLab inventory..."
 )
 
 // PrepareRemote rejects a requested catalog before checkout when the configuration is unusable.
@@ -140,10 +143,6 @@ func attachRemote(ctx context.Context, check *remoteCheck) (*WorkspaceReport, er
 
 	projects := check.projects
 	if !check.listed {
-		if cfg.progress != nil {
-			_, _ = fmt.Fprintln(cfg.progress, "Checking GitLab inventory...")
-		}
-
 		var listErr error
 
 		projects, listErr = listRemoteProjects(ctx, cfg, spec.GitLab)
@@ -252,6 +251,7 @@ func noteServerArchived(spec *WorkspaceSpec, projects []*gitlab.Project) {
 
 // listRemoteProjects reads every configured group once.
 func listRemoteProjects(ctx context.Context, cfg *Config, source *GitLabSource) ([]*gitlab.Project, error) {
+	logger.Info(ctx, inventoryProgress)
 	client := gitlabClient(cfg, source)
 
 	return client.ListProjects(ctx, source.Groups)

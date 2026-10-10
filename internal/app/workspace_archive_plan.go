@@ -33,21 +33,21 @@ func (j *archiveJob) planOne(project *ProjectSpec) (*plannedRepo, error) {
 
 	dir, err := ResolveProjectDirectory(j.base, project.Path)
 	if err != nil {
-		return nil, archivePhase(project.Path, "resolve", err)
+		return nil, j.archivePhase(project.Path, "resolve", err)
 	}
 
 	if err = sameWorktreeRoot(j.ctx, j.git, dir); err != nil {
-		return nil, archivePhase(project.Path, "resolve", err)
+		return nil, j.archivePhase(project.Path, "resolve", err)
 	}
 
 	if strings.TrimSpace(project.URL) != "" {
 		origin, originErr := j.git.Local(j.ctx, dir, "remote", "get-url", "origin")
 		if originErr != nil {
-			return nil, archivePhase(project.Path, "resolve", originErr)
+			return nil, j.archivePhase(project.Path, "resolve", originErr)
 		}
 
 		if mismatch := remoteIdentity(project.URL, origin); mismatch != "" {
-			return nil, archivePhase(project.Path, "resolve", errArchiveIdentity)
+			return nil, j.archivePhase(project.Path, "resolve", errArchiveIdentity)
 		}
 	}
 
@@ -55,7 +55,7 @@ func (j *archiveJob) planOne(project *ProjectSpec) (*plannedRepo, error) {
 
 	resolved, err := ResolveRevision(j.ctx, j.git, dir, revision)
 	if err != nil {
-		return nil, archivePhase(project.Path, "resolve", err)
+		return nil, j.archivePhase(project.Path, "resolve", err)
 	}
 
 	links, err := j.gitlinks(dir, project.Path, resolved.OID)
@@ -76,7 +76,7 @@ func (j *archiveJob) planOne(project *ProjectSpec) (*plannedRepo, error) {
 func (j *archiveJob) gitlinks(dir, project, oid string) ([]*archiveGitlink, error) {
 	out, err := j.git.Local(j.ctx, dir, "ls-tree", "-r", "-z", oid)
 	if err != nil {
-		return nil, archivePhase(project, "ls-tree", err)
+		return nil, j.archivePhase(project, "ls-tree", err)
 	}
 
 	return j.parseGitlinks(out), nil

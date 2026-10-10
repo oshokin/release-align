@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/oshokin/release-align/internal/gitlab"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // gitMetaDir is the worktree metadata entry. It is not itself a nested checkout.
@@ -89,6 +90,7 @@ func refreshFromRemote(
 		return written, err
 	}
 
+	logger.InfoKV(ctx, "Deleting dropped repository directories", "repositories", len(written.Removed))
 	written.Deleted, err = deleteDroppedCheckouts(options.BaseDir, written.Removed)
 
 	return written, err

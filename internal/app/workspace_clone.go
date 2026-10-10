@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -272,9 +271,6 @@ func (j *cloneJob) locked(ctx context.Context) (*CloneReport, error) {
 	}
 
 	j.cfg = j.cloneConfig(j.opts, j.base)
-	if j.opts.progress != nil {
-		_, _ = fmt.Fprintln(j.opts.progress, "Checking GitLab inventory...")
-	}
 
 	projects, err := listRemoteProjects(ctx, j.cfg, j.spec.GitLab)
 	if err != nil {

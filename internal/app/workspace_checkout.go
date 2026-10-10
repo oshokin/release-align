@@ -134,7 +134,7 @@ func (r *runner) branchBusy(ctx context.Context, repo *repository, branch string
 
 // worktreeUsesBranch reports a different worktree that already uses the branch.
 func (r *runner) worktreeUsesBranch(out, repoPath, branchRef string) (bool, error) {
-	seen := &branchSeen{}
+	seen := new(branchSeen)
 
 	flush := func() (bool, error) {
 		if seen.current != branchRef || seen.worktree == "" {

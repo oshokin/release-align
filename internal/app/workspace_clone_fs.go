@@ -222,7 +222,7 @@ func (j *cloneJob) archivedPin(ctx context.Context, item *cloneItem, dir string)
 
 // pinChoice reads the path, catalog branch, and reuse bit for one pin.
 func (*cloneJob) pinChoice(item *cloneItem) *archivedPinChoice {
-	choice := &archivedPinChoice{}
+	choice := new(archivedPinChoice)
 	if item == nil {
 		return choice
 	}

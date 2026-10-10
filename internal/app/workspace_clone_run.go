@@ -294,6 +294,7 @@ func (j *cloneJob) cloneAll(ctx context.Context, items []*cloneItem) error {
 	}
 
 	phase := logger.NewProgress("clone", len(items))
+	phase.Start(ctx)
 
 	for _, item := range items {
 		if ctx.Err() != nil {
@@ -308,15 +309,19 @@ func (j *cloneJob) cloneAll(ctx context.Context, items []*cloneItem) error {
 			continue
 		}
 
+		logger.InfoKV(ctx, "Cloning repository", "repo", item.path)
+
 		err := j.one(ctx, item)
 		if err != nil {
 			j.report.Failed++
 
-			phase.Advance(ctx, item.path, "clone failed")
-
 			if ctx.Err() != nil {
+				phase.Advance(ctx, item.path, "clone interrupted")
+
 				return context.Cause(ctx)
 			}
+
+			phase.Error(ctx, item.path, "clone failed")
 
 			return fmt.Errorf("%w: %s: %w", errClonePartial, item.path, err)
 		}
@@ -352,6 +357,8 @@ func (j *cloneJob) probe(ctx context.Context, items []*cloneItem) error {
 		return nil
 	}
 
+	logger.Info(ctx, "Checking clone transport")
+
 	return j.probeCloneURL(ctx, j.client, j.opts, remote)
 }
 
@@ -383,7 +390,10 @@ func (j *cloneJob) probeCloneURL(
 		DelayPolicy: retry.NewRandomRangePolicy(opts.RetryDelay, opts.RetryDelay),
 		IsRetryable: retryableCloneProbe,
 	}
-	err := retry.Do(ctx, engine, op)
+	onRetry := retry.WithOnRetry(func(ctx context.Context, info *retry.AttemptInfo) {
+		logger.Warnf(ctx, "Clone transport check failed; next attempt in %s: %v", info.Delay, info.Err)
+	})
+	err := retry.Do(ctx, engine, op, onRetry)
 
 	if timeout, ok := errors.AsType[*probeTimeoutError](err); ok {
 		return timeout.cause

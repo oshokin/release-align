@@ -10,6 +10,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // parsedRevision is a typed pin or a short name still to be classified.
@@ -37,6 +38,8 @@ type revisionLookup struct {
 // ResolveWorkspaceRevisions classifies short west names from local branch and tag refs.
 // It does not fetch. Full refs and commits are left unchanged.
 func ResolveWorkspaceRevisions(ctx context.Context, lookup *revisionLookup) error {
+	logger.DebugKV(ctx, "Resolving workspace revisions", "repositories", len(lookup.projects))
+
 	for _, project := range lookup.projects {
 		if err := resolveProjectRevision(ctx, lookup, project); err != nil {
 			return err

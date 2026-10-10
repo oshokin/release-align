@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // workspaceDocument is one regular workspace file read for a refresh.
@@ -199,6 +201,8 @@ func publishWorkspace(
 	spec *WorkspaceSpec,
 	hooks *workspacePublishHooks,
 ) error {
+	logger.Debug(ctx, "Writing workspace file")
+
 	data, err := encodeWorkspace(spec, document.root)
 	if err != nil {
 		return err

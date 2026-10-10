@@ -11,21 +11,22 @@ import (
 	"github.com/oshokin/release-align/internal/logger"
 )
 
+// reportCompleted is the text state of a finished operation.
+const reportCompleted = "completed"
+
 // errNilReport means a command was asked to print a nil report.
 var errNilReport = errors.New("nil report")
 
 // withCommandLog attaches a text logger to the command context.
-// JSON output keeps those lines on stderr.
-func withCommandLog(cmd *cobra.Command, json bool, level string) context.Context {
-	dest := cmd.OutOrStdout()
-	if json {
-		dest = cmd.ErrOrStderr()
-	}
-
+// Diagnostics stay on stderr. The command result is written separately to stdout.
+func withCommandLog(cmd *cobra.Command, level string) context.Context {
 	parsed, _ := logger.ParseLogLevel(level)
-	log := logger.NewWithWriter(parsed, dest)
+	log := logger.NewWithWriter(parsed, cmd.ErrOrStderr())
 
-	return logger.ToContext(cmd.Context(), log)
+	ctx := logger.ToContext(cmd.Context(), log)
+	logger.InfoKV(ctx, "Starting workspace operation", "operation", cmd.Name())
+
+	return ctx
 }
 
 // newSyncCommand moves the selected clones onto the workspace release.
@@ -166,7 +167,7 @@ func usageCommand(cmd *cobra.Command, cfg *app.Config, mode string, err error) e
 	if writeErr != nil {
 		return &commandError{
 			code:  exitFailed,
-			cause: writeErr,
+			cause: errors.Join(err, writeErr),
 		}
 	}
 
@@ -178,13 +179,8 @@ func usageCommand(cmd *cobra.Command, cfg *app.Config, mode string, err error) e
 
 // executeWorkspace runs the workspace and writes the report.
 func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSpec, mode string) error {
-	logOut := cmd.OutOrStdout()
-	if cfg.JSON() {
-		logOut = cmd.ErrOrStderr()
-	}
-
 	level, _ := logger.ParseLogLevel(cfg.LogLevel)
-	log := logger.NewWithWriter(level, logOut)
+	log := logger.NewWithWriter(level, cmd.ErrOrStderr())
 
 	defer func() {
 		syncErr := log.Sync()
@@ -195,6 +191,7 @@ func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSp
 
 	cfg.SetProgress(cmd.ErrOrStderr())
 	ctx := logger.ToContext(cmd.Context(), log)
+	logger.InfoKV(ctx, "Starting workspace operation", "operation", mode, "dry_run", cfg.DryRun)
 	report, runErr := app.RunWorkspace(ctx, cfg, spec, mode)
 
 	writeErr := error(nil)
@@ -205,7 +202,7 @@ func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSp
 	if writeErr != nil {
 		return &commandError{
 			code:  exitFailed,
-			cause: writeErr,
+			cause: errors.Join(runErr, writeErr),
 		}
 	}
 
@@ -213,7 +210,7 @@ func executeWorkspace(cmd *cobra.Command, cfg *app.Config, spec *app.WorkspaceSp
 		if writeErr = app.WriteRemoteInventory(cmd.OutOrStdout(), cfg, report); writeErr != nil {
 			return &commandError{
 				code:  exitFailed,
-				cause: writeErr,
+				cause: errors.Join(runErr, writeErr),
 			}
 		}
 	}

@@ -41,7 +41,7 @@ func (j *archiveJob) write(planned []*plannedRepo) error {
 
 	temp, err := os.CreateTemp(parent, ".release-align-archive-*.zip")
 	if err != nil {
-		return archivePhase(destination, "prepare", err)
+		return j.archivePhase(destination, "prepare", err)
 	}
 
 	tempName := temp.Name()
@@ -60,7 +60,7 @@ func (j *archiveJob) write(planned []*plannedRepo) error {
 	}
 
 	if err = temp.Close(); err != nil {
-		return archivePhase(destination, "close", err)
+		return j.archivePhase(destination, "close", err)
 	}
 
 	if err = archiveCanceled(j.ctx); err != nil {
@@ -68,7 +68,7 @@ func (j *archiveJob) write(planned []*plannedRepo) error {
 	}
 
 	if err = os.Link(tempName, destination); err != nil {
-		return archivePhase(destination, "publish", err)
+		return j.archivePhase(destination, "publish", err)
 	}
 
 	published = true
@@ -83,15 +83,18 @@ func (j *archiveJob) fill(temp *os.File, planned []*plannedRepo) error {
 	writer := zip.NewWriter(temp)
 	names := newArchiveNames()
 	phase := logger.NewProgress("archive", len(planned))
+	phase.Start(j.ctx)
 
 	for _, repo := range planned {
-		phase.Advance(j.ctx, repo.Path, repo.Commit)
+		logger.DebugKV(j.ctx, "Packing repository", "repo", repo.Path, "commit", repo.Commit)
 
 		if err := j.packRepo(writer, names, repo); err != nil {
 			_ = writer.Close()
 
 			return err
 		}
+
+		phase.Advance(j.ctx, repo.Path, "packed")
 	}
 
 	if err := j.writeArchiveManifest(writer, names, j.manifest(planned)); err != nil {
@@ -101,11 +104,11 @@ func (j *archiveJob) fill(temp *os.File, planned []*plannedRepo) error {
 	}
 
 	if err := writer.Close(); err != nil {
-		return archivePhase(j.opts.File, "close", err)
+		return j.archivePhase(j.opts.File, "close", err)
 	}
 
 	if err := temp.Sync(); err != nil {
-		return archivePhase(j.opts.File, "close", err)
+		return j.archivePhase(j.opts.File, "close", err)
 	}
 
 	return nil
@@ -124,7 +127,7 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 
 	tempName, err := j.repoZipPath(filepath.Dir(j.destination))
 	if err != nil {
-		return archivePhase(repo.Path, "archive", err)
+		return j.archivePhase(repo.Path, "archive", err)
 	}
 
 	defer func() {
@@ -133,7 +136,7 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 
 	remain := time.Until(deadline)
 	if remain <= 0 {
-		return archivePhase(repo.Path, "archive", context.DeadlineExceeded)
+		return j.archivePhase(repo.Path, "archive", context.DeadlineExceeded)
 	}
 
 	request := &gitter.ArchiveRequest{
@@ -146,7 +149,7 @@ func (j *archiveJob) packRepo(writer *zip.Writer, names *archiveNames, repo *pla
 
 	err = j.git.Archive(repoCtx, request)
 	if err != nil {
-		return archivePhase(repo.Path, "archive", err)
+		return j.archivePhase(repo.Path, "archive", err)
 	}
 
 	source := &repoZipSource{
@@ -177,10 +180,10 @@ func (j *archiveJob) repoZipPath(dir string) (string, error) {
 }
 
 // copyRepoZip copies one repository archive into the shared writer.
-func (*archiveJob) copyRepoZip(ctx context.Context, source *repoZipSource) error {
+func (j *archiveJob) copyRepoZip(ctx context.Context, source *repoZipSource) error {
 	reader, err := zip.OpenReader(source.path)
 	if err != nil {
-		return archivePhase(source.project, "copy", err)
+		return j.archivePhase(source.project, "copy", err)
 	}
 
 	defer reader.Close()
@@ -196,25 +199,25 @@ func (*archiveJob) copyRepoZip(ctx context.Context, source *repoZipSource) error
 			project: source.project,
 			file:    file,
 		}
-		if err = copyRepoEntry(ctx, entry); err != nil {
-			return archivePhase(source.project, "copy", err)
+		if err = j.copyRepoEntry(ctx, entry); err != nil {
+			return j.archivePhase(source.project, "copy", err)
 		}
 	}
 
 	if err = archiveCanceled(ctx); err != nil {
-		return archivePhase(source.project, "copy", err)
+		return j.archivePhase(source.project, "copy", err)
 	}
 
 	return nil
 }
 
 // copyRepoEntry validates one path and copies its stored bytes in bounded chunks.
-func copyRepoEntry(ctx context.Context, source *repoZipSource) error {
+func (j *archiveJob) copyRepoEntry(ctx context.Context, source *repoZipSource) error {
 	if err := archiveCanceled(ctx); err != nil {
 		return err
 	}
 
-	if !allowedRepoEntry(source.file.Name, source.project) {
+	if !j.allowedRepoEntry(source.file.Name, source.project) {
 		return errArchiveEntry
 	}
 
@@ -294,7 +297,7 @@ func (j *archiveJob) writeArchiveManifest(writer *zip.Writer, names *archiveName
 	name := archiveManifestDir + "/manifest.json"
 
 	if _, err := names.add(name, 0o600); err != nil {
-		return archivePhase(name, "manifest", err)
+		return j.archivePhase(name, "manifest", err)
 	}
 
 	header := &zip.FileHeader{
@@ -305,18 +308,18 @@ func (j *archiveJob) writeArchiveManifest(writer *zip.Writer, names *archiveName
 
 	body, err := writer.CreateHeader(header)
 	if err != nil {
-		return archivePhase(name, "manifest", err)
+		return j.archivePhase(name, "manifest", err)
 	}
 
 	encoded, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return archivePhase(name, "manifest", err)
+		return j.archivePhase(name, "manifest", err)
 	}
 
 	encoded = append(encoded, '\n')
 
 	if _, err = body.Write(encoded); err != nil {
-		return archivePhase(name, "manifest", err)
+		return j.archivePhase(name, "manifest", err)
 	}
 
 	return nil

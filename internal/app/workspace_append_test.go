@@ -1,8 +1,10 @@
 package app
 
 import (
-	"reflect"
+	"slices"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // TestAppendDiscoveredProjectsPreservesIntent checks manual groups, pins, order and ownership.
@@ -46,7 +48,7 @@ func TestAppendDiscoveredProjectsPreservesIntent(t *testing.T) {
 	added := appended.added
 
 	wantAdded := []string{"a/new", "b/new"}
-	if !reflect.DeepEqual(added, wantAdded) || !reflect.DeepEqual(next.Projects[0], existing) {
+	if !slices.Equal(added, wantAdded) || !cmp.Equal(next.Projects[0], existing, specCompare) {
 		t.Fatalf("intent/order lost: next=%+v added=%v", next, added)
 	}
 

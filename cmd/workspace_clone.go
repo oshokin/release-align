@@ -131,10 +131,7 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 
 	cfg := c.cloneEnvConfig()
 	if err = applyCommandEnv(command, cfg); err != nil {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
+		return c.failUsage(command, err)
 	}
 
 	c.options.Attempts = cfg.Attempts
@@ -155,20 +152,14 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 	}
 
 	if err = applyCommandEnv(command, c.cfg); err != nil {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
+		return c.failUsage(command, err)
 	}
 
 	if err = c.cfg.TakeLogLevel(durationLocked(command, "log-level", "LOG_LEVEL"), spec.LogLevel); err != nil {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
+		return c.failUsage(command, err)
 	}
 
-	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, c.cfg.LogLevel)
+	ctx := withCommandLog(command, c.cfg.LogLevel)
 	report, err := app.CloneWorkspace(ctx, c.options)
 
 	if err != nil && report != nil && report.Error == "" {
@@ -183,7 +174,7 @@ func (c *workspaceCloneCommand) run(command *cobra.Command, _ []string) error {
 	if writeErr != nil {
 		return &commandError{
 			code:  exitFailed,
-			cause: writeErr,
+			cause: errors.Join(err, writeErr),
 		}
 	}
 
@@ -205,13 +196,40 @@ func (c *workspaceCloneCommand) fail(command *cobra.Command, err error) error {
 	if writeErr != nil {
 		failed := &commandError{
 			code:  exitFailed,
-			cause: writeErr,
+			cause: errors.Join(err, writeErr),
 		}
 
 		return failed
 	}
 
 	return c.cloneCommandError(err)
+}
+
+// failUsage writes the JSON error for a flag or environment mistake and keeps exit status 2.
+func (c *workspaceCloneCommand) failUsage(command *cobra.Command, err error) error {
+	if c.options.Output == cloneOutputJSON {
+		report := &app.CloneReport{
+			SchemaVersion: 1,
+			Error:         err.Error(),
+		}
+
+		writeErr := c.writeCloneReport(command, report)
+		if writeErr != nil {
+			failed := &commandError{
+				code:  exitFailed,
+				cause: errors.Join(err, writeErr),
+			}
+
+			return failed
+		}
+	}
+
+	usage := &commandError{
+		code:  exitUsage,
+		cause: err,
+	}
+
+	return usage
 }
 
 // cloneEnvConfig carries clone timeouts into the shared environment reader and back.
@@ -238,41 +256,77 @@ func (c *workspaceCloneCommand) writeCloneReport(command *cobra.Command, report 
 }
 
 // formatCloneReport writes the text summary.
-func (*workspaceCloneCommand) formatCloneReport(w io.Writer, report *app.CloneReport) error {
+func (c *workspaceCloneCommand) formatCloneReport(w io.Writer, report *app.CloneReport) error {
 	if w == nil || report == nil {
 		return nil
 	}
 
-	_, err := fmt.Fprintf(
-		w,
-		"Cloned: %d. Reused: %d. Added to workspace: %d. Failed: %d.\n"+
-			"Clones use their remote default branches; release alignment has not run.\n",
-		report.Cloned,
-		report.Reused,
-		report.Added,
-		report.Failed,
-	)
-	if err != nil {
+	state := reportCompleted
+	if report.Error != "" {
+		state = "incomplete"
+	}
+
+	if _, err := fmt.Fprintf(w, "Clone: %s.\n", state); err != nil {
 		return err
 	}
 
-	if report.SkippedEmpty > 0 {
-		if _, err = fmt.Fprintf(w, "Skipped, no default branch: %d.\n", report.SkippedEmpty); err != nil {
+	if _, err := fmt.Fprintf(
+		w,
+		"Downloaded: %d; reused: %d; added to workspace: %d.\n",
+		report.Cloned,
+		report.Reused,
+		report.Added,
+	); err != nil {
+		return err
+	}
+
+	if report.Failed > 0 {
+		if _, err := fmt.Fprintf(w, "Clone attempts failed: %d.\n", report.Failed); err != nil {
 			return err
 		}
 	}
 
-	if report.Recovery != "" {
-		if _, err = fmt.Fprintf(w, "Recovery:\n  %s\n", report.Recovery); err != nil {
+	if report.SkippedEmpty > 0 {
+		if _, err := fmt.Fprintf(w, "Skipped, no default branch: %d.\n", report.SkippedEmpty); err != nil {
 			return err
 		}
+	}
+
+	if report.Error != "" {
+		return c.writeCloneFailure(w, report)
+	}
+
+	if _, err := fmt.Fprintln(
+		w,
+		"Clones use their remote default branches; release alignment has not run.",
+	); err != nil {
+		return err
 	}
 
 	if report.Next == "" {
 		return nil
 	}
 
-	_, err = fmt.Fprintf(w, "Next:\n  %s\n", report.Next)
+	_, err := fmt.Fprintf(w, "Next:\n  %s\n", report.Next)
+
+	return err
+}
+
+// writeCloneFailure separates a saved checkout from a workspace file that was not updated.
+// Recovery replaces Next, because alignment is not the first remaining step.
+func (*workspaceCloneCommand) writeCloneFailure(w io.Writer, report *app.CloneReport) error {
+	if report.Recovery == "" {
+		return nil
+	}
+
+	if _, err := fmt.Fprintln(
+		w,
+		"Workspace file was not updated. Downloaded directories were kept.",
+	); err != nil {
+		return err
+	}
+
+	_, err := fmt.Fprintf(w, "Recovery:\n  %s\n", report.Recovery)
 
 	return err
 }

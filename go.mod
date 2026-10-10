@@ -3,6 +3,7 @@ module github.com/oshokin/release-align
 go 1.27.1
 
 require (
+	github.com/google/go-cmp v0.7.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.28.0

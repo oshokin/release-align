@@ -46,10 +46,12 @@ func TestWorkspaceStashPrintsTheOIDAndSkipsASecondPush(t *testing.T) {
 
 	args := []string{"workspace", "stash", "--base-dir", base, "--file", file}
 	if code := Execute(args, &out, &errOut); code != exitOK ||
-		!strings.Contains(out.String(), " WARN ") ||
-		!strings.Contains(out.String(), "phase=stash") ||
-		!strings.Contains(out.String(), "stashed ") ||
-		!strings.Contains(out.String(), "lamiona/search/calyra") {
+		!strings.Contains(out.String(), "Stash: completed.") ||
+		!strings.Contains(out.String(), "Saved:") ||
+		!strings.Contains(out.String(), "lamiona/search/calyra") ||
+		!strings.Contains(errOut.String(), " INFO ") || strings.Contains(errOut.String(), " WARN ") ||
+		!strings.Contains(errOut.String(), "phase=stash") ||
+		!strings.Contains(errOut.String(), "stashed ") {
 		t.Fatalf("stash %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 
@@ -58,8 +60,10 @@ func TestWorkspaceStashPrintsTheOIDAndSkipsASecondPush(t *testing.T) {
 	writeTestFile(t, filepath.Join(repo, "file"), "newer\n")
 
 	if code := Execute(args, &out, &errOut); code != exitOK ||
-		!strings.Contains(out.String(), "already stashed ") ||
+		!strings.Contains(out.String(), "Existing:") ||
+		!strings.Contains(out.String(), "no new stash created") ||
 		!strings.Contains(out.String(), "lamiona/search/calyra") ||
+		!strings.Contains(errOut.String(), "already stashed ") ||
 		readTestFileString(t, filepath.Join(repo, "file")) != "newer\n" {
 		t.Fatalf("repeat %d\n%s\n%s", code, out.String(), errOut.String())
 	}
@@ -111,7 +115,10 @@ func TestLogLevelIsARootFlagAndTheWorkspaceCanSetIt(t *testing.T) {
 	errOut.Reset()
 
 	args := []string{"workspace", "stash", "--base-dir", base, "--file", file}
-	if code := Execute(args, &out, &errOut); code != exitOK || strings.Contains(out.String(), " INFO ") {
+	if code := Execute(args, &out, &errOut); code != exitOK ||
+		strings.Contains(out.String(), " INFO ") ||
+		strings.Contains(errOut.String(), " INFO ") ||
+		!strings.Contains(out.String(), "Stash: completed.") {
 		t.Fatalf("file %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 
@@ -119,8 +126,10 @@ func TestLogLevelIsARootFlagAndTheWorkspaceCanSetIt(t *testing.T) {
 	errOut.Reset()
 	args = []string{"--log-level", "info", "workspace", "stash", "--base-dir", base, "--file", file}
 
-	if code := Execute(args, &out, &errOut); code != exitOK || !strings.Contains(out.String(), " INFO ") ||
-		!strings.Contains(out.String(), "clean") {
+	if code := Execute(args, &out, &errOut); code != exitOK ||
+		!strings.Contains(errOut.String(), " INFO ") ||
+		!strings.Contains(errOut.String(), "clean") ||
+		!strings.Contains(out.String(), "Clean:") {
 		t.Fatalf("flag %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 

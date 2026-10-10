@@ -112,19 +112,21 @@ func TestListProjectsSkipsSinglePageProgress(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	var buf bytes.Buffer
+	for _, level := range []zapcore.Level{zapcore.InfoLevel, zapcore.DebugLevel} {
+		var buf bytes.Buffer
 
-	ctx := logger.ToContext(t.Context(), logger.NewWithWriter(zapcore.InfoLevel, &buf))
-	client := testClient(server.URL, server.Client())
-	projects, err := client.ListProjects(ctx, []string{"UCS-3DPARTY"})
+		ctx := logger.ToContext(t.Context(), logger.NewWithWriter(level, &buf))
+		client := testClient(server.URL, server.Client())
+		projects, err := client.ListProjects(ctx, []string{"UCS-3DPARTY"})
 
-	plain := buf.String()
-	listed := strings.Contains(plain, "page listed")
-	fetched := strings.Contains(plain, "GitLab GET")
-	failed := err != nil || len(projects) != 1 || !fetched || listed
+		plain := buf.String()
+		listed := strings.Contains(plain, "page listed")
+		fetched := strings.Contains(plain, "GitLab GET")
+		failed := err != nil || len(projects) != 1 || (fetched != (level == zapcore.DebugLevel)) || listed
 
-	if failed {
-		t.Fatalf("projects %d err %v log %s", len(projects), err, plain)
+		if failed {
+			t.Fatalf("projects %d err %v log %s", len(projects), err, plain)
+		}
 	}
 }
 

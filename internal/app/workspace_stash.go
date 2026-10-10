@@ -53,16 +53,29 @@ type stashLog struct {
 	kind string
 }
 
+// StashFailure is one repository this run tried to stash and could not.
+type StashFailure struct {
+	// Path is the workspace path.
+	Path string
+	// Error is the failure text for that path.
+	Error string
+}
+
 // WorkspaceStashResult lists repositories that were stashed, already stashed, clean, or missing.
 type WorkspaceStashResult struct {
 	// Stashed are repositories that received a new stash in this run.
 	Stashed []*StashRecord
 	// Kept are repositories whose existing stash used the same message.
+	// A kept stash was not updated, so newer worktree changes may still be present.
 	Kept []*StashRecord
 	// Clean is the number of worktrees that had nothing to save.
 	Clean int
 	// Missing are listed paths whose directories are absent.
 	Missing []string
+	// Failed are repositories this run tried and could not stash.
+	Failed []*StashFailure
+	// NotStarted are listed paths left alone because the run stopped.
+	NotStarted []string
 }
 
 const (
@@ -112,20 +125,41 @@ func stashProjects(
 	base string,
 	projects []*ProjectSpec,
 ) (*WorkspaceStashResult, error) {
-	result := &WorkspaceStashResult{}
+	result := new(WorkspaceStashResult)
 	phase := logger.NewProgress(stashPhase, listedCount(projects))
+	phase.Start(ctx)
 
 	var failed error
 
-	for _, project := range projects {
+	for i, project := range projects {
 		if project == nil || project.Path == "" {
 			continue
+		}
+
+		if ctx.Err() != nil {
+			noteStashNotStarted(result, projects[i:])
+			failed = errors.Join(failed, context.Cause(ctx))
+
+			break
 		}
 
 		outcome, err := stashProject(ctx, git, base, project)
 		if err != nil {
 			failed = errors.Join(failed, fmt.Errorf("%s: %w", project.Path, err))
-			phase.Warn(ctx, project.Path, "stash failed")
+			recordStashFailure(result, project.Path, err)
+
+			if ctx.Err() == nil {
+				phase.Error(ctx, project.Path, "stash failed")
+			} else {
+				phase.Advance(ctx, project.Path, "stash interrupted")
+			}
+
+			if ctx.Err() != nil {
+				noteStashNotStarted(result, projects[i+1:])
+				failed = errors.Join(failed, context.Cause(ctx))
+
+				break
+			}
 
 			continue
 		}
@@ -159,7 +193,7 @@ func listedCount(projects []*ProjectSpec) int {
 }
 
 // logStash writes one repository in the same progress form as status and sync.
-// A clean worktree is info. A stash, an existing stash, and a missing directory are warnings.
+// Successful saves are info. Existing stashes and missing directories need attention.
 func logStash(ctx context.Context, entry *stashLog) {
 	if entry == nil || entry.phase == nil || entry.path == "" {
 		return
@@ -167,9 +201,9 @@ func logStash(ctx context.Context, entry *stashLog) {
 
 	switch entry.kind {
 	case stashCreated:
-		entry.phase.Warn(ctx, entry.path, stashNote("stashed", entry.record))
+		entry.phase.Advance(ctx, entry.path, stashNote("stashed", entry.record))
 	case stashKept:
-		entry.phase.Warn(ctx, entry.path, stashNote("already stashed", entry.record))
+		entry.phase.Warn(ctx, entry.path, stashNote("already stashed", entry.record)+"; no new stash created")
 	case stashClean:
 		entry.phase.Advance(ctx, entry.path, "clean")
 	case stashMissing:
@@ -186,7 +220,8 @@ func stashNote(action string, record *StashRecord) string {
 	return action + " " + record.OID
 }
 
-// logStashSummary writes the phase totals once the visits are finished.
+// logStashSummary writes phase totals for debug diagnostics.
+// The command result is printed by the caller and does not depend on this line.
 func logStashSummary(ctx context.Context, phase *logger.Progress, result *WorkspaceStashResult) {
 	if phase == nil || result == nil || phase.Total() == 0 {
 		return
@@ -195,7 +230,7 @@ func logStashSummary(ctx context.Context, phase *logger.Progress, result *Worksp
 	elapsed := time.Since(phase.Started())
 	percent, left := logger.PaceText(phase.Done(), phase.Total(), elapsed)
 
-	logger.InfoKV(
+	logger.DebugKV(
 		ctx,
 		"finished",
 		"phase", stashPhase,
@@ -208,6 +243,34 @@ func logStashSummary(ctx context.Context, phase *logger.Progress, result *Worksp
 		"clean", result.Clean,
 		"missing", len(result.Missing),
 	)
+}
+
+// recordStashFailure stores one repository this run could not stash.
+func recordStashFailure(result *WorkspaceStashResult, path string, err error) {
+	if result == nil || path == "" || err == nil {
+		return
+	}
+
+	failure := &StashFailure{
+		Path:  path,
+		Error: err.Error(),
+	}
+	result.Failed = append(result.Failed, failure)
+}
+
+// noteStashNotStarted records listed paths that were not visited.
+func noteStashNotStarted(result *WorkspaceStashResult, projects []*ProjectSpec) {
+	if result == nil {
+		return
+	}
+
+	for _, project := range projects {
+		if project == nil || project.Path == "" {
+			continue
+		}
+
+		result.NotStarted = append(result.NotStarted, project.Path)
+	}
 }
 
 // recordStash stores one repository outcome.
@@ -353,7 +416,7 @@ func findStash(ctx context.Context, git LocalGit, dir, message string) (*foundSt
 		}
 	}
 
-	return &foundStash{}, nil
+	return new(foundStash), nil
 }
 
 // sameStashMessage matches the message Git stores as "On <branch>: <message>".

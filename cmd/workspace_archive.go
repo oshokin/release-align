@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,17 +95,14 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 
 	base, err := savedBaseDir(choice)
 	if err != nil {
-		return c.archiveCommandError(err)
+		return c.fail(command, err)
 	}
 
 	c.options.BaseDir = base
 
 	cfg := c.archiveEnvConfig()
 	if err = applyCommandEnv(command, cfg); err != nil {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
+		return c.failUsage(command, err)
 	}
 
 	c.options.LocalTimeout = cfg.LocalTimeout
@@ -114,29 +112,20 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 
 	spec, err := app.LoadWorkspace(c.options.WorkspaceFile)
 	if err != nil {
-		return c.archiveCommandError(err)
+		return c.fail(command, err)
 	}
 
 	if err = applyCommandEnv(command, c.cfg); err != nil {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
+		return c.failUsage(command, err)
 	}
 
 	if err = c.cfg.TakeLogLevel(durationLocked(command, "log-level", "LOG_LEVEL"), spec.LogLevel); err != nil {
-		return &commandError{
-			code:  exitUsage,
-			cause: err,
-		}
+		return c.failUsage(command, err)
 	}
 
-	ctx := withCommandLog(command, c.options.Output == cloneOutputJSON, c.cfg.LogLevel)
+	ctx := withCommandLog(command, c.cfg.LogLevel)
 
 	report, err := app.ArchiveWorkspace(ctx, c.options)
-	if command.Context().Err() != nil {
-		return err
-	}
 
 	if err != nil && report != nil && report.Error == "" {
 		report.Error = err.Error()
@@ -146,15 +135,67 @@ func (c *workspaceArchiveCommand) run(command *cobra.Command, _ []string) error 
 		return c.archiveCommandError(err)
 	}
 
-	writeErr := c.writeArchiveReport(command, report)
+	writeErr := c.writeArchiveReport(command, report, err)
 	if writeErr != nil {
 		return &commandError{
 			code:  exitFailed,
-			cause: writeErr,
+			cause: errors.Join(err, writeErr),
 		}
 	}
 
 	return c.archiveCommandError(err)
+}
+
+// fail writes one JSON document when that format was requested, then returns the status.
+// Text usage errors stay on stderr. An unrecognized --output never reaches this helper.
+func (c *workspaceArchiveCommand) fail(command *cobra.Command, err error) error {
+	if c.options.Output != cloneOutputJSON {
+		return c.archiveCommandError(err)
+	}
+
+	report := &app.ArchiveReport{
+		SchemaVersion: 1,
+		Error:         err.Error(),
+	}
+
+	writeErr := c.writeArchiveReport(command, report, err)
+	if writeErr != nil {
+		failed := &commandError{
+			code:  exitFailed,
+			cause: errors.Join(err, writeErr),
+		}
+
+		return failed
+	}
+
+	return c.archiveCommandError(err)
+}
+
+// failUsage writes the JSON error for a flag or environment mistake and keeps exit status 2.
+func (c *workspaceArchiveCommand) failUsage(command *cobra.Command, err error) error {
+	if c.options.Output == cloneOutputJSON {
+		report := &app.ArchiveReport{
+			SchemaVersion: 1,
+			Error:         err.Error(),
+		}
+
+		writeErr := c.writeArchiveReport(command, report, err)
+		if writeErr != nil {
+			failed := &commandError{
+				code:  exitFailed,
+				cause: errors.Join(err, writeErr),
+			}
+
+			return failed
+		}
+	}
+
+	usage := &commandError{
+		code:  exitUsage,
+		cause: err,
+	}
+
+	return usage
 }
 
 // archiveEnvConfig carries archive timeouts into the shared environment reader and back.
@@ -168,24 +209,31 @@ func (c *workspaceArchiveCommand) archiveEnvConfig() *app.Config {
 }
 
 // writeArchiveReport writes JSON to stdout or the text summary.
-func (c *workspaceArchiveCommand) writeArchiveReport(command *cobra.Command, report *app.ArchiveReport) error {
+func (c *workspaceArchiveCommand) writeArchiveReport(
+	command *cobra.Command,
+	report *app.ArchiveReport,
+	runErr error,
+) error {
 	if c.options.Output == cloneOutputJSON {
 		return c.writeArchiveJSON(command.OutOrStdout(), report)
 	}
 
-	return c.formatArchiveReport(command.OutOrStdout(), report)
+	return c.formatArchiveReport(command.OutOrStdout(), report, runErr)
 }
 
 // formatArchiveReport writes the text summary.
-func (*workspaceArchiveCommand) formatArchiveReport(w io.Writer, report *app.ArchiveReport) error {
+// The error text stays on stderr. A published file is still named after a late cancel.
+func (c *workspaceArchiveCommand) formatArchiveReport(w io.Writer, report *app.ArchiveReport, runErr error) error {
 	if w == nil || report == nil {
 		return nil
 	}
 
-	if report.Error != "" {
-		_, err := fmt.Fprintf(w, "%s\nNo archive file was published.\n", report.Error)
+	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+		return c.writeArchiveInterrupted(w, report)
+	}
 
-		return err
+	if report.Error != "" {
+		return c.writeArchiveFailed(w, report)
 	}
 
 	_, err := fmt.Fprintf(
@@ -208,6 +256,40 @@ func (*workspaceArchiveCommand) formatArchiveReport(w io.Writer, report *app.Arc
 		w,
 		"Gitlinks are recorded in the manifest. Submodule contents are not in the archive.",
 	)
+
+	return err
+}
+
+// writeArchiveInterrupted says the run stopped. It claims a missing file only when none was published.
+func (*workspaceArchiveCommand) writeArchiveInterrupted(w io.Writer, report *app.ArchiveReport) error {
+	if _, err := fmt.Fprintln(w, "Archive: interrupted."); err != nil {
+		return err
+	}
+
+	if report.File != "" {
+		_, err := fmt.Fprintf(w, "File: %s\n", report.File)
+
+		return err
+	}
+
+	_, err := fmt.Fprintln(w, "No new archive was published.")
+
+	return err
+}
+
+// writeArchiveFailed names a published file when one exists and does not repeat the error text.
+func (*workspaceArchiveCommand) writeArchiveFailed(w io.Writer, report *app.ArchiveReport) error {
+	if _, err := fmt.Fprintln(w, "Archive: failed."); err != nil {
+		return err
+	}
+
+	if report.File != "" {
+		_, err := fmt.Fprintf(w, "File: %s\n", report.File)
+
+		return err
+	}
+
+	_, err := fmt.Fprintln(w, "No archive file was published.")
 
 	return err
 }

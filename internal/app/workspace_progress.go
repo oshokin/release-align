@@ -21,7 +21,7 @@ const (
 )
 
 // beginPhase starts a progress phase whose size is known.
-func (r *runner) beginPhase(name string, total int) {
+func (r *runner) beginPhase(ctx context.Context, name string, total int) {
 	if total <= 0 {
 		r.progress = nil
 
@@ -29,6 +29,8 @@ func (r *runner) beginPhase(name string, total int) {
 	}
 
 	r.progress = logger.NewProgress(name, total)
+	r.progress.Start(ctx)
+
 	if r.report == nil {
 		return
 	}
@@ -110,7 +112,7 @@ func logStopGroup(ctx context.Context, group *stopGroup) {
 		return
 	}
 
-	logger.InfoKV(
+	logger.DebugKV(
 		ctx,
 		group.row.Message,
 		"outcome", group.row.Outcome,
@@ -131,13 +133,7 @@ func logOneRow(ctx context.Context, row *WorkspaceRow) {
 		fields = append(fields, "reason", row.ReasonCode)
 	}
 
-	if row.Outcome == outcomeBlocked {
-		logger.WarnKV(ctx, row.Message, fields...)
-
-		return
-	}
-
-	logger.InfoKV(ctx, row.Message, fields...)
+	logger.DebugKV(ctx, row.Message, fields...)
 }
 
 // bulkStop reports a repository that was not started.
@@ -156,7 +152,7 @@ func bulkStop(row *WorkspaceRow) bool {
 
 // logWorkspaceSummary prints the run totals, including elapsed time and the latest phase.
 func logWorkspaceSummary(ctx context.Context, report *WorkspaceReport) {
-	logger.InfoKV(ctx, "workspace", summaryFields(report)...)
+	logger.DebugKV(ctx, "workspace", summaryFields(report)...)
 }
 
 // summaryFields is the comma-separated tail of the workspace line.

@@ -116,8 +116,10 @@ func TestCompletionMixedReadinessUsesActiveDenominator(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(out.String(), "1/1 ready") {
-		t.Fatalf("JSON ready=true actionable=1 skipped=1, text=%q", out.String())
+	text := out.String()
+	if !strings.Contains(text, "Active: 1/1") || !strings.Contains(text, "archived skipped: 1") ||
+		strings.Count(text, remoteNotCheckedMsg) != 1 {
+		t.Fatalf("JSON ready=true actionable=1 skipped=1, text=%q", text)
 	}
 }
 

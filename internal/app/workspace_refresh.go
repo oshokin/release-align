@@ -439,6 +439,7 @@ func refreshInventory(
 func missingListedProjects(ctx context.Context, g LocalGit, base string, spec *WorkspaceSpec) ([]string, error) {
 	missing := make([]string, 0)
 	phase := logger.NewProgress("refresh", len(spec.Projects))
+	phase.Start(ctx)
 
 	for _, project := range spec.Projects {
 		gone, err := listedProjectMissing(ctx, g, base, project.Path)

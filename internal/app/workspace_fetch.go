@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -23,7 +24,7 @@ func (r *runner) fetchWorkspace(ctx context.Context, cancel context.CancelCauseF
 		return nil
 	}
 
-	r.beginPhase("fetch", len(repos))
+	r.beginPhase(ctx, "fetch", len(repos))
 
 	outcomes := r.fetchRepos(ctx, cancel, repos)
 
@@ -126,12 +127,23 @@ func (r *runner) noteFetch(ctx context.Context, outcome *fetchOutcome) {
 		return
 	}
 
-	message := "fetched"
-	if outcome.err != nil {
-		message = "fetch failed"
+	if errors.Is(outcome.err, context.Canceled) {
+		r.step(ctx, outcome.repo.relative, "fetch interrupted")
+
+		return
 	}
 
-	r.step(ctx, outcome.repo.relative, message)
+	if outcome.err != nil {
+		r.progress.Error(ctx, outcome.repo.relative, "fetch failed")
+
+		if r.report != nil {
+			r.report.ProgressDone = r.progress.Done()
+		}
+
+		return
+	}
+
+	r.step(ctx, outcome.repo.relative, "fetched")
 }
 
 // fetchLocked fetches one repository while holding its common-directory lock.
@@ -186,7 +198,7 @@ func (r *runner) fetchLocked(
 
 // fetch updates origin once, and retries a single time after the remote is confirmed reachable.
 func (r *runner) fetch(ctx context.Context, repo *repository, recoverNetwork func(*repository) error) error {
-	logger.Debug(ctx, "Fetching origin branches and tags")
+	logger.DebugKV(ctx, "Fetching origin branches and tags", "repo", repo.relative)
 
 	err := r.git.Fetch(ctx, repo.path, r.cfg.FetchTimeout)
 	if err == nil {

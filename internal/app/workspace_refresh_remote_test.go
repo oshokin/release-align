@@ -130,7 +130,7 @@ func TestRefreshRemoteRefusesAnEmptyCatalog(t *testing.T) {
 		BaseDir: f.base,
 		Remote:  true,
 		Sync:    true,
-		catalog: &refreshCatalog{},
+		catalog: new(refreshCatalog),
 	}
 
 	_, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
@@ -152,7 +152,7 @@ func TestRefreshRemoteRejectsDeleteAddAndPaths(t *testing.T) {
 	}
 
 	for _, options := range cases {
-		options.catalog = &refreshCatalog{}
+		options.catalog = new(refreshCatalog)
 		_, err := RefreshWorkspace(t.Context(), offlineClient(f), file, options)
 
 		if !errors.Is(err, ErrWorkspaceRefreshUsage) || !sameBytes(readBytes(t, file), before) {
@@ -162,11 +162,10 @@ func TestRefreshRemoteRejectsDeleteAddAndPaths(t *testing.T) {
 
 	plain := stashFile(t, "group/repo with spaces")
 	plainBefore := readBytes(t, plain)
-	catalog := &refreshCatalog{}
 	options := &WorkspaceRefreshOptions{
 		BaseDir: f.base,
 		Remote:  true,
-		catalog: catalog,
+		catalog: new(refreshCatalog),
 	}
 	_, err := RefreshWorkspace(t.Context(), offlineClient(f), plain, options)
 

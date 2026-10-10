@@ -244,8 +244,11 @@ func parseBaseDir(t *testing.T, args ...string) (*cobra.Command, string) {
 	}
 	command.Flags().StringVar(&current, "base-dir", "", "")
 	command.SetArgs(args)
-	command.SetOut(&bytes.Buffer{})
-	command.SetErr(&bytes.Buffer{})
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	command.SetOut(stdout)
+	command.SetErr(stderr)
 
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)

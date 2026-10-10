@@ -150,12 +150,10 @@ func (c *Client) doFetch(ctx context.Context, group string, page int) (*pageResu
 	}
 
 	req.Header.Set("Private-Token", c.Token)
-	logger.Infof(ctx, "GitLab GET %s page %d", endpoint.path, page)
+	logger.Debugf(ctx, "GitLab GET %s page %d", endpoint.path, page)
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
-		logger.Warnf(ctx, "GitLab GET %s page %d: %v", endpoint.path, page, err)
-
 		return nil, err
 	}
 
@@ -166,8 +164,6 @@ func (c *Client) doFetch(ctx context.Context, group string, page int) (*pageResu
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warnf(ctx, "GitLab GET %s status %d", endpoint.path, resp.StatusCode)
-
 		failure := &statusError{
 			status: resp.StatusCode,
 			path:   endpoint.path,

@@ -33,7 +33,7 @@ func (r *runner) probe(ctx context.Context, repo *repository) error {
 		}
 
 		attempt++
-		logger.Infof(ctx, "Checking origin: attempt %d/%d", attempt, r.cfg.Attempts)
+		logger.Debugf(ctx, "Checking origin: attempt %d/%d", attempt, r.cfg.Attempts)
 
 		err := r.git.Probe(ctx, repo.path, r.cfg.ProbeTimeout)
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {

@@ -8,10 +8,12 @@ import (
 	"strings"
 
 	"github.com/oshokin/release-align/internal/gitter"
+	"github.com/oshokin/release-align/internal/logger"
 )
 
 // bindWorkspaceDirs resolves every selected path before any fetch starts.
 func (r *runner) bindWorkspaceDirs(ctx context.Context, items []*workspaceItem) error {
+	logger.InfoKV(ctx, "Checking repository directories", "repositories", len(items))
 	seen := make([]string, 0, len(items))
 
 	for _, item := range items {

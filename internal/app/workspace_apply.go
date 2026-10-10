@@ -8,7 +8,7 @@ import (
 // applyWorkspace checks out each planned repository.
 // Without --ignore-errors the first failure leaves the rest unstarted.
 func (r *runner) applyWorkspace(ctx context.Context, items []*workspaceItem) error {
-	r.beginPhase("apply", r.plannedCount(items))
+	r.beginPhase(ctx, "apply", r.plannedCount(items))
 
 	for index, item := range items {
 		if ctx.Err() != nil {
